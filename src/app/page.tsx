@@ -138,18 +138,20 @@ export default function TransportesAppPage() {
       </div>
 
       {/* 2. Canvas de Mapa MapLibre WebGL (Motor Funcional GPU 60fps) */}
-      <DynamicMap
-        positions={positions}
-        highlightLines={highlightLines}
-        onBusSelect={handleBusSelect}
-        selectedKey={selectedKey}
-        cameraMode={cameraMode}
-        onCameraModeChange={setCameraMode}
-        cameraBottomPadding={140}
-        center={[-58.3816, -34.6037]}
-        theme="light"
-        className="w-full h-full"
-      />
+      <div className="absolute inset-0 z-0">
+        <DynamicMap
+          positions={positions}
+          highlightLines={highlightLines}
+          onBusSelect={handleBusSelect}
+          selectedKey={selectedKey}
+          cameraMode={cameraMode}
+          onCameraModeChange={setCameraMode}
+          cameraBottomPadding={140}
+          center={[-58.3816, -34.6037]}
+          theme="light"
+          className="w-full h-full"
+        />
+      </div>
 
       {/* 3. Controles Flotantes en el Mapa con Touch Targets de 44px */}
       <div className="absolute right-4 top-[calc(max(14px,env(safe-area-inset-top))+124px)] z-20 flex flex-col gap-2 pointer-events-auto">

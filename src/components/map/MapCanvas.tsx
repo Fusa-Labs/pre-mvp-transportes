@@ -24,6 +24,12 @@ import { useEffect, useRef } from 'react';
 import { useReducedMotion } from 'motion/react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Configurar URL estática del worker de MapLibre servido desde /public/maplibre
+// Esto resuelve el error "Failed to load module script: MIME type text/html" bajo Next.js Turbopack
+if (typeof window !== 'undefined') {
+  maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
+}
 import type { VehiclePosition } from '@/lib/data-service';
 import { vehicleCameraFrame, type CameraMode } from '@/lib/map/camera-controller';
 import { VehicleMotion } from '@/lib/map/vehicle-motion-engine';
@@ -393,6 +399,17 @@ export function MapCanvas({
     // error + follow-user. Un solo dueño del flujo de ubicación.
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 96 }), 'bottom-left');
     mapRef.current = map;
+
+    const ro = new ResizeObserver(() => {
+      if (!disposed && mapRef.current) {
+        mapRef.current.resize();
+      }
+    });
+    ro.observe(el);
+
+    map.on('error', (e) => {
+      console.warn('[MapLibre]', e);
+    });
 
     // Handle para consola del demo (mockup sin secretos en el mapa)
     (window as unknown as { __RUTABA_MAP?: maplibregl.Map }).__RUTABA_MAP = map;
@@ -1738,13 +1755,17 @@ export function MapCanvas({
       });
     };
 
-    map.on('load', () => { void installOverlays(); });
+    map.on('load', () => {
+      map.resize();
+      void installOverlays();
+    });
 
     return () => {
       // disposed PRIMERO: todos los writes protegidos (setHalo, stopFlow,
       // stopPulse) salen temprano y el cleanup nunca toca el mapa en
       // mitad de un swap de estilo.
       disposed = true;
+      ro.disconnect();
       stopFlow();
       stopPulse();
       stopPlannerPulse();
