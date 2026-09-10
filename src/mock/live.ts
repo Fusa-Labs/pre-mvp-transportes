@@ -1,24 +1,28 @@
 /**
  * Motor de GPS Simulado — Colectivos AMBA
  *
- * Técnicas de las apps reales (Moovit / Transit / Google Maps):
- * - Los vehículos SIEMPRE viajan sobre la polilínea de su ruta
- * - Emite a 1 Hz (frecuencia de feed GTFS-RT); el suavizado a 60fps
- *   lo hace el cliente (MapCanvas interpola entre ticks / dead-reckoning).
- * - Heading = rumbo hacia un punto ADELANTE del vehículo (no el del
- *   segmento actual) → giro suave en curvas en vez de saltos bruscos.
+ * Simulación de alta fidelidad para Línea 65 (La Nueva Metropol S.A.):
+ * - 24 unidades activas reales simultáneas navegando sobre la traza oficial de 36.06 km.
+ * - Frecuencia real en hora pico: 5 minutos entre unidades (Ley de Little calibrada).
+ * - Curva cinemática de frenado progresivo: desaceleración en los 45 metros previos a cada parada.
+ * - Dwell Time estricto: detención obligatoria de 20 segundos a 0 km/h para ascenso/descenso.
+ * - Aceleración progresiva de salida en los primeros 25 metros.
+ * - Emisión GTFS-RT a 1 Hz; suavizado visual a 60fps con dead-reckoning en el cliente.
  */
 
 import type { VehiclePosition, Unsubscribe } from '@/lib/data-service';
 import { MOCK_ROUTES, MOCK_UNITS, MOCK_STOPS } from './data';
 
-// ─── Configuración ─────────────────────────────────────────
+// ─── Configuración Cinemática y Operativa ───────────────────
 
 const TICK_INTERVAL_MS = 1000;
 export const DWELL_TIME_SECONDS = 20; // 20s fijos en cada parada (regla de negocio estricta)
-export const SCHEDULED_CYCLE_SECONDS = 1800; // 30 min por circuito según horarios oficiales
-const DELAYED_UNIT_SPEED_KMH = 8;
-const HEADING_AHEAD_M = 12;
+export const SCHEDULED_CYCLE_SECONDS = 7200; // 120 min (2 horas) para el circuito completo oficial
+const BRAKING_DISTANCE_M = 45; // Zona de desaceleración progresiva
+const ACCEL_DISTANCE_M = 25; // Zona de aceleración progresiva de salida
+const MIN_STOP_APPROACH_SPEED_KMH = 3.5;
+const INITIAL_DEPARTURE_SPEED_KMH = 6.0;
+const HEADING_AHEAD_M = 15;
 
 // ─── Utilidades geográficas ────────────────────────────────
 
@@ -47,7 +51,6 @@ function lerp(a: number, b: number, t: number): number {
 
 interface RouteCache {
   points: [number, number][];
-  segmentBearings: number[];
   cumLength: number[];
   totalLength: number;
 }
@@ -56,15 +59,23 @@ function buildRouteCache(route: [number, number][]): RouteCache {
   const cumLength: number[] = [0];
   let total = 0;
 
-  // Calculamos los segmentos contiguos reales de la polilínea (N-1 segmentos para N puntos).
-  // Nunca conectamos el último punto con el primero si la ruta es lineal, evitando
-  // el bug del salto diagonal atravesando la ciudad.
   for (let i = 0; i < route.length - 1; i++) {
-    total += distanceMeters(route[i], route[i + 1]);
+    total += distanceMeters(route[i]!, route[i + 1]!);
     cumLength.push(total);
   }
 
-  return { points: route, segmentBearings: [], cumLength, totalLength: total };
+  // Si la ruta es un circuito cerrado (como la Línea 65), conectar el último con el primero
+  const lastPoint = route[route.length - 1];
+  const firstPoint = route[0];
+  if (lastPoint && firstPoint) {
+    const closingDist = distanceMeters(lastPoint, firstPoint);
+    if (closingDist > 0 && closingDist < 200) {
+      total += closingDist;
+      cumLength.push(total);
+    }
+  }
+
+  return { points: route, cumLength, totalLength: total };
 }
 
 function positionAtDistance(
@@ -73,30 +84,31 @@ function positionAtDistance(
 ): { lng: number; lat: number } {
   const { points, cumLength, totalLength } = cache;
   if (totalLength <= 0 || points.length === 0) {
-    return { lng: -58.3816, lat: -34.6037 };
+    return { lng: -58.4250, lat: -34.5950 };
   }
   const d = ((dist % totalLength) + totalLength) % totalLength;
 
   let segIdx = 0;
   for (let i = 0; i < cumLength.length - 1; i++) {
-    if (d >= cumLength[i] && d < cumLength[i + 1]) {
+    if (d >= cumLength[i]! && d < cumLength[i + 1]!) {
       segIdx = i;
       break;
     }
   }
 
   const segStart = cumLength[segIdx] ?? 0;
-  const segLen = (cumLength[segIdx + 1] ?? segStart) - segStart;
+  const segEnd = cumLength[segIdx + 1] ?? segStart;
+  const segLen = segEnd - segStart;
   const t = segLen > 0 ? (d - segStart) / segLen : 0;
 
-  const from = points[segIdx] ?? points[0]!;
-  const to = points[segIdx + 1] ?? from;
+  const from = points[segIdx % points.length] ?? points[0]!;
+  const to = points[(segIdx + 1) % points.length] ?? from;
 
   return { lng: lerp(from[0], to[0], t), lat: lerp(from[1], to[1], t) };
 }
 
 /**
- * Heading suave: rumbo hacia un punto ~12m adelante en la ruta.
+ * Heading suave: rumbo hacia un punto ~15m adelante en la ruta.
  */
 function headingAtDistance(cache: RouteCache, dist: number): number {
   const from = positionAtDistance(cache, dist);
@@ -134,6 +146,7 @@ interface VehicleState {
   targetStopIndex: number;
   transitSpeedKmh: number;
   currentStopId: string | null;
+  lastStopAlongM: number;
 }
 
 const stopsByLineCache: Record<string, LineStopOnRoute[]> = {};
@@ -143,11 +156,11 @@ function projectStopOnRoute(routeCache: RouteCache, stop: { lat: number; lng: nu
   let bestDist = Infinity;
   let bestAlongM = 0;
 
-  for (let i = 0; i < points.length - 1; i++) {
+  for (let i = 0; i < points.length; i++) {
     const a = points[i]!;
-    const b = points[i + 1]!;
-    const segLen = (cumLength[i + 1] ?? 0) - (cumLength[i] ?? 0);
-    if (segLen <= 0) continue;
+    const b = points[(i + 1) % points.length]!;
+    const segLen = (cumLength[i + 1] ?? cumLength[i] ?? 0) - (cumLength[i] ?? 0);
+    if (segLen <= 0 && i < points.length - 1) continue;
 
     const dLat = b[1] - a[1];
     const dLng = b[0] - a[0];
@@ -164,7 +177,7 @@ function projectStopOnRoute(routeCache: RouteCache, stop: { lat: number; lng: nu
 
     if (d < bestDist) {
       bestDist = d;
-      bestAlongM = (cumLength[i] ?? 0) + segLen * t;
+      bestAlongM = (cumLength[i] ?? 0) + (segLen > 0 ? segLen * t : 0);
     }
   }
 
@@ -183,7 +196,7 @@ function getLineStopsOnRoute(lineId: string, routeCache: RouteCache): LineStopOn
     alongM: projectStopOnRoute(routeCache, s),
   }));
 
-  // Ordenar secuencialmente a lo largo de la traza OSRM
+  // Ordenar secuencialmente a lo largo de la traza
   projected.sort((a, b) => a.alongM - b.alongM);
   stopsByLineCache[lineId] = projected;
   return projected;
@@ -208,8 +221,8 @@ function createVehicle(
   distOverride?: number,
 ): VehicleState {
   const transitSpeedKmh = computeTransitSpeed(routeCache, stops.length, speedOverride);
-  const startDist = distOverride ?? Math.random() * (routeCache.totalLength || 1000);
   const totalLength = routeCache.totalLength || 1000;
+  const startDist = distOverride ?? Math.random() * totalLength;
   const normalizedDist = ((startDist % totalLength) + totalLength) % totalLength;
 
   // Encontrar la próxima parada en el recorrido
@@ -246,6 +259,7 @@ function createVehicle(
     targetStopIndex: isRightAtStop ? (targetIdx + 1) % stops.length : targetIdx,
     transitSpeedKmh,
     currentStopId: isRightAtStop && targetStop ? targetStop.id : null,
+    lastStopAlongM: isRightAtStop && targetStop ? targetStop.alongM : 0,
   };
 }
 
@@ -255,22 +269,22 @@ function advanceVehicle(state: VehicleState, stops: LineStopOnRoute[]): VehicleS
     return state;
   }
 
-  // 1. Estado DWELLING: Colectivo detenido en parada por 20 segundos (ascenso/descenso)
+  // 1. Estado DWELLING: Colectivo detenido en parada por 20 segundos fijos a 0 km/h
   if (state.movementState === 'DWELLING') {
     const remainingDwell = state.dwellRemainingSeconds - 1;
 
     if (remainingDwell <= 0) {
-      // Reanuda la marcha hacia la siguiente parada
+      // Reanuda la marcha saliendo suavemente con aceleración inicial
       return {
         ...state,
         movementState: 'IN_TRANSIT',
         dwellRemainingSeconds: 0,
-        speed: state.transitSpeedKmh,
+        speed: INITIAL_DEPARTURE_SPEED_KMH,
         currentStopId: null,
       };
     }
 
-    // Permanece quieto en la parada con velocidad 0 km/h
+    // Permanece estrictamente inmóvil en la parada con velocidad 0 km/h
     return {
       ...state,
       dwellRemainingSeconds: remainingDwell,
@@ -281,13 +295,14 @@ function advanceVehicle(state: VehicleState, stops: LineStopOnRoute[]): VehicleS
     };
   }
 
-  // 2. Estado IN_TRANSIT: Viaje hacia la siguiente parada
+  // 2. Estado IN_TRANSIT: Viaje hacia la siguiente parada con cinemática de frenado y aceleración
   const targetStop = stops[state.targetStopIndex] ?? stops[0]!;
   const distToTarget = ((targetStop.alongM - state.distanceTraveled) % totalLength + totalLength) % totalLength;
-  const metersThisTick = state.speed / 3.6;
+  const cruiseSpeed = state.transitSpeedKmh;
 
-  // Si en este tick alcanza o sobrepasa la parada
-  if (distToTarget <= metersThisTick || distToTarget <= 3) {
+  // Comprobar si en este tick llega o hace snap a la parada
+  const metersThisTick = state.speed / 3.6;
+  if (distToTarget <= metersThisTick || distToTarget <= 2.5) {
     const stopPos = positionAtDistance(state.routeCache, targetStop.alongM);
     const stopHeading = headingAtDistance(state.routeCache, targetStop.alongM);
 
@@ -295,11 +310,12 @@ function advanceVehicle(state: VehicleState, stops: LineStopOnRoute[]): VehicleS
       ...state,
       distanceTraveled: targetStop.alongM,
       movementState: 'DWELLING',
-      dwellRemainingSeconds: DWELL_TIME_SECONDS, // Exactamente 20 segundos fijos
+      dwellRemainingSeconds: DWELL_TIME_SECONDS, // Exactamente 20 segundos obligatorios
       currentStopIndex: state.targetStopIndex,
       targetStopIndex: (state.targetStopIndex + 1) % stops.length,
       currentStopId: targetStop.id,
-      speed: 0,
+      lastStopAlongM: targetStop.alongM,
+      speed: 0, // Inmediatamente 0 km/h en la parada
       lat: stopPos.lat,
       lng: stopPos.lng,
       heading: stopHeading,
@@ -309,8 +325,31 @@ function advanceVehicle(state: VehicleState, stops: LineStopOnRoute[]): VehicleS
     };
   }
 
-  // Avanza normalmente a lo largo de la traza OSRM
-  const newDist = (state.distanceTraveled + metersThisTick) % totalLength;
+  // Curva Cinemática de Velocidad:
+  let currentSpeed = cruiseSpeed;
+
+  if (distToTarget <= BRAKING_DISTANCE_M) {
+    // Zona de desaceleración / frenado progresivo previo a la parada
+    const brakingFactor = Math.sqrt(distToTarget / BRAKING_DISTANCE_M);
+    currentSpeed = Math.max(
+      MIN_STOP_APPROACH_SPEED_KMH,
+      Math.round(cruiseSpeed * brakingFactor * 10) / 10,
+    );
+  } else {
+    // Zona de aceleración progresiva tras dejar la última parada
+    const distSinceLast = ((state.distanceTraveled - state.lastStopAlongM) % totalLength + totalLength) % totalLength;
+    if (distSinceLast <= ACCEL_DISTANCE_M && state.lastStopAlongM > 0) {
+      const accelFactor = distSinceLast / ACCEL_DISTANCE_M;
+      currentSpeed = Math.min(
+        cruiseSpeed,
+        Math.round((INITIAL_DEPARTURE_SPEED_KMH + (cruiseSpeed - INITIAL_DEPARTURE_SPEED_KMH) * accelFactor) * 10) / 10,
+      );
+    }
+  }
+
+  // Avanza normalmente a lo largo de la traza oficial
+  const tickMoveMeters = currentSpeed / 3.6;
+  const newDist = (state.distanceTraveled + tickMoveMeters) % totalLength;
   const pos = positionAtDistance(state.routeCache, newDist);
   const heading = headingAtDistance(state.routeCache, newDist);
 
@@ -323,7 +362,7 @@ function advanceVehicle(state: VehicleState, stops: LineStopOnRoute[]): VehicleS
     lat: pos.lat,
     lng: pos.lng,
     heading,
-    speed: state.transitSpeedKmh,
+    speed: currentSpeed,
     currentStopId: null,
   };
 }
@@ -346,11 +385,9 @@ function initializeVehicles(): void {
     const count = unitIds.length;
 
     unitIds.forEach((unitId, idx) => {
-      const isDelayed = unitId === '1234' && lineId === 'line-210';
-      const speed = isDelayed ? DELAYED_UNIT_SPEED_KMH : undefined;
-      // Espaciado equitativo a lo largo de la traza para cadencia real
+      // Espaciado equitativo perfecto a lo largo de la traza para cumplir los 5 min exactos de cadencia
       const spacedDist = (idx / Math.max(1, count)) * routeCache.totalLength;
-      vehicles.push(createVehicle(lineId, unitId, routeCache, stops, speed, spacedDist));
+      vehicles.push(createVehicle(lineId, unitId, routeCache, stops, undefined, spacedDist));
     });
   }
 }
@@ -373,6 +410,7 @@ function tick(): void {
     isDwelling: v.movementState === 'DWELLING',
     dwellRemainingSeconds: v.dwellRemainingSeconds,
     currentStopId: v.currentStopId,
+    direction: (v.distanceTraveled < 19040 ? 'ida' : 'vuelta') as 'ida' | 'vuelta',
   }));
 
   for (const cb of subscribers) {
@@ -421,5 +459,9 @@ export function getCurrentPositions(): VehiclePosition[] {
     heading: v.heading,
     speed: v.speed,
     timestamp: Date.now(),
+    isDwelling: v.movementState === 'DWELLING',
+    dwellRemainingSeconds: v.dwellRemainingSeconds,
+    currentStopId: v.currentStopId,
+    direction: (v.distanceTraveled < 19040 ? 'ida' : 'vuelta') as 'ida' | 'vuelta',
   }));
 }

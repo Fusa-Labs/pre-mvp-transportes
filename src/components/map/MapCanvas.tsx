@@ -33,6 +33,7 @@ if (typeof window !== 'undefined') {
 import type { VehiclePosition } from '@/lib/data-service';
 import { vehicleCameraFrame, type CameraMode } from '@/lib/map/camera-controller';
 import { VehicleMotion } from '@/lib/map/vehicle-motion-engine';
+import { TransportService } from '@/lib/services/transport-service';
 import {
   busBadgeSvg,
   busHeadingSvg,
@@ -130,6 +131,8 @@ export interface MapCanvasProps {
   positions: VehiclePosition[];
   highlightLines?: string[];
   onBusSelect?: (pos: VehiclePosition | null) => void;
+  onStopSelect?: (stopId: string) => void;
+  selectedStopId?: string | null;
   selectedKey?: string | null;
   cameraMode?: CameraMode;
   cameraBottomPadding?: number;
@@ -183,6 +186,7 @@ const distM = (a: [number, number], b: [number, number]) => {
 const ROUTE_STOPS: RouteStop[] = (() => {
   const out: RouteStop[] = [];
   for (const [lineId, coords] of Object.entries(MOCK_ROUTES)) {
+    if (lineId === 'line-65-ida' || lineId === 'line-65-vuelta') continue;
     const first = coords[0];
     if (!first) continue;
     out.push({ lineId, name: '', lng: first[0], lat: first[1] });
@@ -285,6 +289,8 @@ export function MapCanvas({
   positions,
   highlightLines = [],
   onBusSelect,
+  onStopSelect,
+  selectedStopId = null,
   selectedKey = null,
   cameraMode = 'overview',
   cameraBottomPadding = 116,
@@ -313,6 +319,8 @@ export function MapCanvas({
   const cameraBottomPaddingRef = useRef(cameraBottomPadding);
   const cameraModeHandlerRef = useRef(onCameraModeChange);
   const selectHandlerRef = useRef(onBusSelect);
+  const stopSelectHandlerRef = useRef(onStopSelect);
+  const stopPopupRef = useRef<maplibregl.Popup | null>(null);
   const themeRef = useRef(theme);
   const ingestRef = useRef<() => void>(() => {});
   const refreshRef = useRef<() => void>(() => {});
@@ -330,6 +338,69 @@ export function MapCanvas({
   const pulseControlRef = useRef<{ start: () => void; stop: () => void; isFocused: () => boolean } | null>(
     null,
   );
+
+  useEffect(() => {
+    stopSelectHandlerRef.current = onStopSelect;
+  }, [onStopSelect]);
+
+  // Cinemática suave hacia la parada seleccionada + render de etiqueta con arribo en tiempo real
+  useEffect(() => {
+    if (!selectedStopId) {
+      if (stopPopupRef.current) {
+        stopPopupRef.current.remove();
+      }
+      return;
+    }
+    const stop = MOCK_STOPS.find((s) => s.id === selectedStopId) || TransportService.getParadas().find((s) => s.id === selectedStopId);
+    const map = mapRef.current;
+    if (!map || !stop) return;
+
+    map.flyTo({
+      center: [stop.lng, stop.lat],
+      zoom: 16.5,
+      pitch: 25,
+      duration: 1100,
+      padding: { bottom: cameraBottomPaddingRef.current + 80 },
+      essential: true,
+    });
+
+    const llegadas = TransportService.getLlegadasPorParada(stop.id, positionsRef.current);
+    const prox = llegadas[0];
+    const etaText = prox ? prox.displayLabel : 'Cada 5 min';
+    const isVuelta = stop.id.includes('stop-65-1') && stop.id !== 'stop-65-01';
+    const lineBadgeColor = isVuelta ? '#EF4444' : '#0EA5E9';
+
+    if (!stopPopupRef.current) {
+      stopPopupRef.current = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: false,
+        offset: 14,
+        className: 'rutaba-stop-popup',
+      });
+    }
+
+    const stopName = 'name' in stop ? stop.name : (stop as { nombre: string }).nombre;
+
+    stopPopupRef.current
+      .setLngLat([stop.lng, stop.lat])
+      .setHTML(`
+        <div style="padding: 6px 10px; min-width: 160px; font-family: var(--font-inter, Inter), system-ui, sans-serif; background: #ffffff; color: #141414; border-radius: 16px; border: 1px solid #e0e0e0; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+          <div style="font-weight: 650; font-size: 12px; line-height: 1.25; color: #141414; margin-bottom: 4px;">
+            ${stopName}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f0f0f0; padding-top: 4px;">
+            <span style="font-weight: 600; font-size: 10px; color: ${lineBadgeColor}; display: inline-flex; align-items: center; gap: 4px;">
+              <span style="width: 6px; height: 6px; border-radius: 9999px; background: ${lineBadgeColor}; display: inline-block;"></span>
+              Línea 65
+            </span>
+            <span style="font-weight: 700; font-size: 11px; color: #141414; background: #f3f3f3; border: 1px solid #e0e0e0; padding: 1px 8px; border-radius: 9999px;">
+              ${etaText}
+            </span>
+          </div>
+        </div>
+      `)
+      .addTo(map);
+  }, [selectedStopId]);
 
   // Cursor crosshair + refs del handler mientras el planificador espera
   // el tap del mapa (el handler 'click' se registra una sola vez).
@@ -420,7 +491,7 @@ export function MapCanvas({
     // ÚNICA posición renderizada que consumen símbolo, cámara y trail.
     const motionMap = new Map<string, VehicleMotion>();
     const currentMap = new Map<string, Live>();
-    const metaMap = new Map<string, { lineId: string; unitId: string }>();
+    const metaMap = new Map<string, { lineId: string; unitId: string; direction?: 'ida' | 'vuelta' }>();
     // Rigging del eje delantero (adaptación del spec Tipo D): la derivada
     // del heading por frame se suaviza y bucketea (−1 | 0 | 1); el bucket
     // elige el sprite iso pre-bakeado vía icon-image (match). Sin writes
@@ -459,17 +530,18 @@ export function MapCanvas({
       for (const [key, pos] of currentMap) {
         const m = metaMap.get(key);
         if (!m) continue;
+        const dirSuffix = m.direction ? `-${m.direction}` : '';
         features.push({
           type: 'Feature' as const,
           geometry: { type: 'Point' as const, coordinates: [pos.lng, pos.lat] as [number, number] },
           properties: {
-            badge: `badge-${m.lineId}`,
-            headingIcon: `heading-${m.lineId}`,
-            topDown: `top-${m.lineId}`,
-            iso: `iso-${m.lineId}`,
-            isoL: `isoL-${m.lineId}`,
-            isoR: `isoR-${m.lineId}`,
-            colorLight: LINE_COLOR_LIGHT[m.lineId] ?? '#67E8F9',
+            badge: `badge-${m.lineId}${dirSuffix}`,
+            headingIcon: `heading-${m.lineId}${dirSuffix}`,
+            topDown: `top-${m.lineId}${dirSuffix}`,
+            iso: `iso-${m.lineId}${dirSuffix}`,
+            isoL: `isoL-${m.lineId}${dirSuffix}`,
+            isoR: `isoR-${m.lineId}${dirSuffix}`,
+            colorLight: m.direction === 'vuelta' ? '#FCA5A5' : m.direction === 'ida' ? '#7DD3FC' : (LINE_COLOR_LIGHT[m.lineId] ?? '#67E8F9'),
             heading: Math.round(pos.heading),
             isoRotate: isoBillboardRotation(pos.heading, camBearing),
             shadowRotate: shadowRotation(pos.heading),
@@ -549,7 +621,7 @@ export function MapCanvas({
         trailKey = selKeyNow;
         trail = [];
         const meta = selKeyNow ? metaMap.get(selKeyNow) : undefined;
-        trailColor = MOCK_LINES.find((l) => l.id === meta?.lineId)?.color ?? '#101D3D';
+        trailColor = meta?.direction === 'vuelta' ? '#EF4444' : meta?.direction === 'ida' ? '#0EA5E9' : (MOCK_LINES.find((l) => l.id === meta?.lineId)?.color ?? '#101D3D');
         lastTrailPush = 0;
       }
       const srcTrail = map.getSource('bus-trail') as maplibregl.GeoJSONSource | undefined;
@@ -600,7 +672,7 @@ export function MapCanvas({
           speed: pos.speed,
           timestamp: pos.timestamp,
         });
-        metaMap.set(key, { lineId: pos.lineId, unitId: pos.unitId });
+        metaMap.set(key, { lineId: pos.lineId, unitId: pos.unitId, direction: pos.direction });
       }
       activeKeys = nextKeys;
       tickStart = performance.now();
@@ -1015,12 +1087,40 @@ export function MapCanvas({
       closeOnClick: false,
       offset: 12,
     });
+    stopPopupRef.current = stopPopup;
+
     map.on('mouseenter', 'stops', (e) => {
       map.getCanvas().style.cursor = 'pointer';
       const f = e.features?.[0];
       if (!f) return;
       const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-      stopPopup.setLngLat(coords).setHTML(`<strong>${f.properties?.name}</strong>`).addTo(map);
+      const stopId = String(f.properties?.id ?? '');
+      const stopName = String(f.properties?.name ?? 'Parada');
+      const llegadas = TransportService.getLlegadasPorParada(stopId, positionsRef.current);
+      const prox = llegadas[0];
+      const etaText = prox ? prox.displayLabel : 'Cada 5 min';
+      const isVuelta = stopId.includes('stop-65-1') && stopId !== 'stop-65-01';
+      const lineBadgeColor = isVuelta ? '#EF4444' : '#0EA5E9';
+
+      stopPopup
+        .setLngLat(coords)
+        .setHTML(`
+          <div style="padding: 5px 7px; min-width: 155px; font-family: system-ui, -apple-system, sans-serif;">
+            <div style="font-weight: 800; font-size: 12px; line-height: 1.25; color: #0f172a; margin-bottom: 4px;">
+              ${stopName}
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f1f5f9; padding-top: 4px;">
+              <span style="font-weight: 700; font-size: 10px; color: ${lineBadgeColor}; display: inline-flex; align-items: center; gap: 3px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: ${lineBadgeColor}; display: inline-block;"></span>
+                Línea 65
+              </span>
+              <span style="font-weight: 800; font-size: 11px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 9999px;">
+                ${etaText}
+              </span>
+            </div>
+          </div>
+        `)
+        .addTo(map);
     });
     map.on('mouseleave', 'stops', () => {
       map.getCanvas().style.cursor = '';
@@ -1063,13 +1163,64 @@ export function MapCanvas({
         pickHandlerRef.current([e.lngLat.lng, e.lngLat.lat]);
         return;
       }
-      const layers = interactiveBusLayers.filter((id) => map.getLayer(id));
-      if (layers.length === 0) return; // estilo en pleno swap — ignorar
       const r = 14; // tap slop px
       const box: [[number, number], [number, number]] = [
         [e.point.x - r, e.point.y - r],
         [e.point.x + r, e.point.y + r],
       ];
+
+      // Prioridad a paradas si se clickea sobre una parada
+      if (map.getLayer('stops')) {
+        const stopFeats = map.queryRenderedFeatures(box, { layers: ['stops'] });
+        if (stopFeats.length > 0) {
+          const stopId = String(stopFeats[0]?.properties?.id ?? '');
+          if (stopId) {
+            const coords = (stopFeats[0].geometry as any).coordinates;
+            // Cinemática de zoom
+            map.easeTo({
+              center: [coords[0], coords[1]],
+              zoom: 16.2,
+              pitch: 28,
+              duration: 1000,
+              padding: { bottom: cameraBottomPaddingRef.current + 80 },
+              essential: true,
+            });
+
+            const stopName = String(stopFeats[0]?.properties?.name ?? 'Parada');
+            const llegadas = TransportService.getLlegadasPorParada(stopId, positionsRef.current);
+            const prox = llegadas[0];
+            const etaText = prox ? prox.displayLabel : 'Cada 5 min';
+            const isVuelta = stopId.includes('stop-65-1') && stopId !== 'stop-65-01';
+            const lineBadgeColor = isVuelta ? '#EF4444' : '#0EA5E9';
+
+            stopPopup
+              .setLngLat(coords)
+              .setHTML(`
+                <div style="padding: 5px 7px; min-width: 155px; font-family: system-ui, -apple-system, sans-serif;">
+                  <div style="font-weight: 800; font-size: 12px; line-height: 1.25; color: #0f172a; margin-bottom: 4px;">
+                    ${stopName}
+                  </div>
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f1f5f9; padding-top: 4px;">
+                    <span style="font-weight: 700; font-size: 10px; color: ${lineBadgeColor}; display: inline-flex; align-items: center; gap: 3px;">
+                      <span style="width: 6px; height: 6px; border-radius: 50%; background: ${lineBadgeColor}; display: inline-block;"></span>
+                      Línea 65
+                    </span>
+                    <span style="font-weight: 800; font-size: 11px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 9999px;">
+                      ${etaText}
+                    </span>
+                  </div>
+                </div>
+              `)
+              .addTo(map);
+
+            stopSelectHandlerRef.current?.(stopId);
+            return;
+          }
+        }
+      }
+
+      const layers = interactiveBusLayers.filter((id) => map.getLayer(id));
+      if (layers.length === 0) return; // estilo en pleno swap — ignorar
       const rendered = map.queryRenderedFeatures(box, { layers });
       const unique = new Map<string, (typeof rendered)[number]>();
       for (const feature of rendered) {
@@ -1125,19 +1276,60 @@ export function MapCanvas({
       // color por feature. Flecha de sentido: imagen compartida.
       const arrowImg = await svgToImageData(routeArrowSvg());
       if (arrowImg && !map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImg, { pixelRatio: 2 });
+
+      const routeFeatures = [];
+      // Línea 65 dividida por sentido: Ida en Celeste, Vuelta en Rojo
+      if (MOCK_ROUTES['line-65-ida'] && MOCK_ROUTES['line-65-vuelta']) {
+        routeFeatures.push({
+          type: 'Feature' as const,
+          properties: {
+            lineId: 'line-65',
+            direction: 'ida',
+            color: '#0EA5E9', // Celeste para Ida (Constitución -> Barrancas)
+            colorLight: '#7DD3FC',
+          },
+          geometry: { type: 'LineString' as const, coordinates: MOCK_ROUTES['line-65-ida'] },
+        });
+        routeFeatures.push({
+          type: 'Feature' as const,
+          properties: {
+            lineId: 'line-65',
+            direction: 'vuelta',
+            color: '#EF4444', // Rojo para Vuelta (Barrancas -> Constitución)
+            colorLight: '#FCA5A5',
+          },
+          geometry: { type: 'LineString' as const, coordinates: MOCK_ROUTES['line-65-vuelta'] },
+        });
+      } else if (MOCK_ROUTES['line-65']) {
+        routeFeatures.push({
+          type: 'Feature' as const,
+          properties: {
+            lineId: 'line-65',
+            color: '#0EA5E9',
+            colorLight: '#7DD3FC',
+          },
+          geometry: { type: 'LineString' as const, coordinates: MOCK_ROUTES['line-65'] },
+        });
+      }
+
+      for (const [lineId, coords] of Object.entries(MOCK_ROUTES)) {
+        if (lineId === 'line-65' || lineId === 'line-65-ida' || lineId === 'line-65-vuelta') continue;
+        routeFeatures.push({
+          type: 'Feature' as const,
+          properties: {
+            lineId,
+            color: LINE_COLORS[lineId] ?? '#1D4ED8',
+            colorLight: LINE_COLOR_LIGHT[lineId] ?? '#93C5FD',
+          },
+          geometry: { type: 'LineString' as const, coordinates: coords },
+        });
+      }
+
       map.addSource('routes', {
         type: 'geojson',
         data: {
           type: 'FeatureCollection',
-          features: Object.entries(MOCK_ROUTES).map(([lineId, coords]) => ({
-            type: 'Feature',
-            properties: {
-              lineId,
-              color: LINE_COLORS[lineId] ?? '#1D4ED8',
-              colorLight: LINE_COLOR_LIGHT[lineId] ?? '#93C5FD',
-            },
-            geometry: { type: 'LineString', coordinates: coords },
-          })),
+          features: routeFeatures,
         },
       });
       map.addLayer({
@@ -1241,11 +1433,18 @@ export function MapCanvas({
         type: 'geojson',
         data: {
           type: 'FeatureCollection',
-          features: MOCK_STOPS.map((s) => ({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-            properties: { name: s.name },
-          })),
+          features: MOCK_STOPS.map((s) => {
+            const isVuelta = s.id.includes('stop-65-1') && s.id !== 'stop-65-01';
+            return {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+              properties: {
+                id: s.id,
+                name: s.name,
+                color: isVuelta ? '#EF4444' : '#0EA5E9',
+              },
+            };
+          }),
         },
       });
       map.addLayer({
@@ -1255,7 +1454,7 @@ export function MapCanvas({
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 4, 15, 6, 17, 8],
           'circle-color': '#FFFFFF',
-          'circle-stroke-color': '#101D3D',
+          'circle-stroke-color': ['get', 'color'],
           'circle-stroke-width': 2.5,
         },
       });
@@ -1427,11 +1626,23 @@ export function MapCanvas({
       const iconDefs: { id: string; svg: string; w: number; h: number }[] = [
         ...MOCK_LINES.flatMap((line) => [
           { id: `badge-${line.id}`, svg: busBadgeSvg(line.color, line.shortName), w: 96, h: 96 },
+          { id: `badge-${line.id}-ida`, svg: busBadgeSvg('#0EA5E9', line.shortName), w: 96, h: 96 },
+          { id: `badge-${line.id}-vuelta`, svg: busBadgeSvg('#EF4444', line.shortName), w: 96, h: 96 },
           { id: `heading-${line.id}`, svg: busHeadingSvg(line.color), w: 96, h: 96 },
+          { id: `heading-${line.id}-ida`, svg: busHeadingSvg('#0EA5E9'), w: 96, h: 96 },
+          { id: `heading-${line.id}-vuelta`, svg: busHeadingSvg('#EF4444'), w: 96, h: 96 },
           { id: `top-${line.id}`, svg: busTopDownSvg(line.color), w: 96, h: 96 },
+          { id: `top-${line.id}-ida`, svg: busTopDownSvg('#0EA5E9'), w: 96, h: 96 },
+          { id: `top-${line.id}-vuelta`, svg: busTopDownSvg('#EF4444'), w: 96, h: 96 },
           { id: `iso-${line.id}`, svg: busIsoSvg(line.color), w: ISO_W, h: ISO_H },
+          { id: `iso-${line.id}-ida`, svg: busIsoSvg('#0EA5E9'), w: ISO_W, h: ISO_H },
+          { id: `iso-${line.id}-vuelta`, svg: busIsoSvg('#EF4444'), w: ISO_W, h: ISO_H },
           { id: `isoL-${line.id}`, svg: busIsoSvg(line.color, -1), w: ISO_W, h: ISO_H },
+          { id: `isoL-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', -1), w: ISO_W, h: ISO_H },
+          { id: `isoL-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', -1), w: ISO_W, h: ISO_H },
           { id: `isoR-${line.id}`, svg: busIsoSvg(line.color, 1), w: ISO_W, h: ISO_H },
+          { id: `isoR-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 1), w: ISO_W, h: ISO_H },
+          { id: `isoR-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 1), w: ISO_W, h: ISO_H },
         ]),
         { id: 'shadow-blob', svg: busShadowSvg(), w: 96, h: 96 },
       ];

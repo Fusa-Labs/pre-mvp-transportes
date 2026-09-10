@@ -23,7 +23,7 @@ const SUBTE_COLORS: Record<string, string> = {
 };
 
 /**
- * StopSequenceItem — Fila enriquecida de parada para la secuencia de la Línea 200.
+ * StopSequenceItem — Fila enriquecida de parada para la secuencia de la Línea 65.
  * Incorpora:
  * - Cuenta regresiva en vivo + hora exacta de arribo (ETA dual).
  * - Comparador de tiempo a pie (Walk feasibility).
@@ -56,37 +56,37 @@ export function StopSequenceItem({
   };
 
   return (
-    <div className="relative pl-1">
+    <div className="relative">
       {/* 1. Riel vertical conectando las paradas */}
       <div
-        className={`absolute left-[18px] w-0.5 bg-slate-200 dark:bg-zinc-700 ${
-          isFirst ? "top-5 bottom-0" : isLast ? "top-0 h-5" : "top-0 bottom-0"
+        className={`absolute left-[28px] -translate-x-1/2 w-[2px] bg-hairline z-0 ${
+          isFirst ? "top-[28px] bottom-0" : isLast ? "top-0 h-[28px]" : "top-0 bottom-0"
         }`}
         aria-hidden="true"
       />
 
-      {/* 2. Tarjeta interactiva de la parada (Touch target de 48px+) */}
+      {/* 2. Tarjeta interactiva de la parada */}
       <div
         onClick={handleRowClick}
-        className={`relative z-10 min-h-[52px] flex flex-col p-3 rounded-2xl cursor-pointer transition-all active:scale-[0.98] ${
+        className={`relative z-10 min-h-[48px] flex flex-col p-2.5 rounded-[16px] cursor-pointer transition-colors ${
           isSelected
-            ? "bg-amber-500/10 dark:bg-amber-500/15 border border-amber-400/60 dark:border-amber-500/40 shadow-sm"
-            : "hover:bg-slate-50 dark:hover:bg-zinc-850/60 border border-transparent"
+            ? "bg-canvas-soft border border-hairline"
+            : "hover:bg-canvas-soft border border-transparent"
         }`}
       >
         <div className="flex items-center justify-between gap-3">
           {/* Nodo / Dot de la línea */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center justify-center shrink-0 w-8 h-8">
+            <div className="flex items-center justify-center shrink-0 w-7 h-7 relative z-10">
               <div
                 className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
                   isSelected
-                    ? "bg-amber-500 border-white ring-4 ring-amber-500/30 scale-110"
+                    ? "bg-ink border-canvas ring-2 ring-ink"
                     : displayStatus === "en-parada"
-                    ? "bg-emerald-500 border-white ring-4 ring-emerald-500/30 animate-pulse"
+                    ? "bg-ink border-canvas ring-2 ring-hairline animate-pulse"
                     : isImminent
-                    ? "bg-emerald-500 border-white ring-2 ring-emerald-500/20"
-                    : "bg-slate-400 dark:bg-zinc-600 border-white dark:border-zinc-900"
+                    ? "bg-ink border-canvas"
+                    : "bg-canvas border-hairline"
                 }`}
               />
             </div>
@@ -94,28 +94,22 @@ export function StopSequenceItem({
             {/* Nombre y dirección */}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h4
-                  className={`text-xs font-black truncate leading-tight ${
-                    isSelected
-                      ? "text-amber-900 dark:text-amber-200"
-                      : "text-slate-800 dark:text-slate-100"
-                  }`}
-                >
+                <h4 className="text-xs font-semibold text-ink truncate leading-tight">
                   {stop.nombre}
                 </h4>
               </div>
 
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+              <p className="text-[11px] text-text-muted truncate mt-0.5">
                 {stop.direccion}
               </p>
 
-              {/* Transbordos Multimodales (Sugerencia 4) */}
+              {/* Transbordos Multimodales */}
               {stop.conexiones && (
                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                   {stop.conexiones.subte?.map((lineaSubte) => (
                     <span
                       key={lineaSubte}
-                      className="px-1.5 py-0.2 rounded text-[10px] font-black text-white shadow-xs inline-flex items-center"
+                      className="px-2 py-0.2 rounded-full text-[10px] font-bold text-white shadow-xs inline-flex items-center"
                       style={{ backgroundColor: SUBTE_COLORS[lineaSubte] || "#334155" }}
                       title={`Combinación Subte Línea ${lineaSubte}`}
                     >
@@ -125,28 +119,20 @@ export function StopSequenceItem({
 
                   {stop.conexiones.metrobus && (
                     <span
-                      className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 text-[9px] font-extrabold tracking-wide"
+                      className="px-2 py-0.2 rounded-full bg-canvas border border-hairline text-text-muted text-[10px] font-semibold"
                       title="Combinación con Metrobús 9 de Julio"
                     >
-                      METROBÚS
+                      Metrobús
                     </span>
                   )}
                 </div>
               )}
 
-              {/* Factibilidad a Pie (Sugerencia 3) */}
+              {/* Factibilidad a Pie */}
               {walkComparison && (
-                <div className="flex items-center gap-1 mt-1 text-[10px] font-bold">
-                  <Footprints className="w-3 h-3 text-slate-400" />
-                  <span
-                    className={
-                      walkComparison.status === "on-time"
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : walkComparison.status === "hurry"
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-slate-500 dark:text-slate-400"
-                    }
-                  >
+                <div className="flex items-center gap-1 mt-1 text-[11px] font-medium text-text-muted">
+                  <Footprints className="w-3 h-3 text-text-muted" />
+                  <span>
                     {walkComparison.label} ({walkComparison.walkMin} min a pie)
                   </span>
                 </div>
@@ -156,72 +142,60 @@ export function StopSequenceItem({
 
           {/* Pastilla Lateral Derecha: Cuenta Regresiva + Hora (ETA Dual) */}
           <div className="flex flex-col items-end shrink-0 pl-1">
-            <div
-              className={`px-2.5 py-1 rounded-xl flex items-center gap-1.5 text-xs font-black shadow-xs ${
-                statusColor === "emerald"
-                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                  : statusColor === "amber"
-                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                  : "bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-zinc-700"
-              }`}
-            >
+            <div className="px-2.5 py-0.5 rounded-full flex items-center gap-1.5 text-xs font-semibold bg-canvas border border-hairline text-ink">
               {displayStatus === "en-parada" ? (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-ink animate-pulse" />
                   <span>En parada</span>
                 </>
               ) : displayStatus === "arribando" ? (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-ink animate-pulse" />
                   <span>Arribando</span>
                 </>
               ) : (
                 <>
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      statusColor === "emerald" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-                    }`}
-                  />
+                  <span className="w-1.5 h-1.5 rounded-full bg-ink" />
                   <span>{displayLabel || `${etaMin} min`}</span>
                 </>
               )}
             </div>
 
-            <div className="flex items-center gap-1 mt-1 text-[10px] font-semibold text-slate-400">
+            <div className="flex items-center gap-1 mt-1 text-[11px] font-normal text-text-muted">
               <Clock className="w-3 h-3" />
               <span>{clockTime} hs</span>
               {isAccordionOpen ? (
-                <ChevronUp className="w-3 h-3 ml-0.5 text-slate-400" />
+                <ChevronUp className="w-3 h-3 ml-0.5 text-text-muted" />
               ) : (
-                <ChevronDown className="w-3 h-3 ml-0.5 text-slate-400" />
+                <ChevronDown className="w-3 h-3 ml-0.5 text-text-muted" />
               )}
             </div>
           </div>
         </div>
 
-        {/* 3. Micro-Acordeón con los próximos 3 horarios programados (Sugerencia 5) */}
+        {/* 3. Micro-Acordeón con los próximos 3 horarios programados */}
         <AnimatePresence>
           {isAccordionOpen && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="overflow-hidden pt-2.5 mt-2 border-t border-slate-200/50 dark:border-zinc-700/50"
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+              className="overflow-hidden pt-2.5 mt-2 border-t border-hairline-soft"
             >
-              <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1.5">
+              <div className="flex items-center justify-between text-[11px] font-medium text-text-muted mb-1.5">
                 <span>Próximas pasadas programadas</span>
-                <span className="text-amber-600 dark:text-amber-400 font-semibold">Cada 15 min</span>
+                <span className="text-ink font-semibold">Cada 15 min</span>
               </div>
 
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                 {scheduledNextSlots.map((slot, idx) => (
                   <div
                     key={slot}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold tabular-nums shadow-xs ${
+                    className={`px-3 py-1 rounded-full text-xs font-semibold tabular-nums ${
                       idx === 0
-                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 font-black"
-                        : "bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-zinc-700"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-canvas border border-hairline text-ink"
                     }`}
                   >
                     {slot} hs

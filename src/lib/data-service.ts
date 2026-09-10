@@ -14,6 +14,7 @@ export interface VehiclePosition {
   isDwelling?: boolean;
   dwellRemainingSeconds?: number;
   currentStopId?: string | null;
+  direction?: 'ida' | 'vuelta';
 }
 
 export interface Line {

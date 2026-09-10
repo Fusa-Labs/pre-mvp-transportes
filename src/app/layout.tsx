@@ -1,7 +1,14 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { ThemeProvider, THEME_STORAGE_KEY } from "@/components/theme/ThemeProvider";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "Transportes AMBA • Monitoreo en Vivo (Metropol)",
@@ -28,7 +35,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#020617",
+  themeColor: "#141414",
 };
 
 const themeInitScript = `
@@ -53,11 +60,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" suppressHydrationWarning className="h-full antialiased dark">
+    <html lang="es" suppressHydrationWarning className={`h-full antialiased dark ${inter.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="h-full w-full overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overscroll-none select-none transition-colors duration-200">
+      <body className="h-full w-full overflow-hidden bg-background text-foreground overscroll-none select-none transition-colors duration-200">
         <ThemeProvider>
           {children}
         </ThemeProvider>

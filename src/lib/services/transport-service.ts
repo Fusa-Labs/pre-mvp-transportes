@@ -29,8 +29,6 @@ export interface IDataService {
 }
 
 export class TransportService implements IDataService {
-  // --- Métodos en Español (fase implementacion oficial transportes.txt) ---
-
   public getLineas(): Linea[] {
     return LINEAS_MOCK;
   }
@@ -81,6 +79,12 @@ export class TransportService implements IDataService {
         const { alongM: stopAlongM } = track.project(parada.lng, parada.lat);
         const totalLength = track.totalM;
 
+        // Paradas de la línea para conteo de dwells intermedios
+        const lineStops = PARADAS_MOCK.filter((p) => p.lineasIds.includes(lId)).map((s) => ({
+          id: s.id,
+          alongM: track.project(s.lng, s.lat).alongM,
+        }));
+
         // Filtrar y ordenar unidades que se dirigen hacia esta parada
         const lineVehicles = positions
           .filter((p) => p.lineId === lId)
@@ -95,10 +99,22 @@ export class TransportService implements IDataService {
           })
           .sort((a, b) => a.distAhead - b.distAhead);
 
-        lineVehicles.slice(0, 2).forEach((veh, idx) => {
+        lineVehicles.slice(0, 3).forEach((veh, idx) => {
           const isAtStop = (veh.isDwelling && (veh.currentStopId === parada.id || veh.distAhead <= 25)) || veh.distAhead <= 12;
-          const speedMps = Math.max(10, veh.speed > 0 ? veh.speed : 16.5) / 3.6;
-          const etaSeconds = isAtStop ? 0 : Math.round(veh.distAhead / speedMps);
+
+          let intermediateDwells = 0;
+          if (!isAtStop) {
+            for (const s of lineStops) {
+              const d = ((s.alongM - veh.vehAlongM) % totalLength + totalLength) % totalLength;
+              if (d > 20 && d < veh.distAhead - 20) {
+                intermediateDwells += 20;
+              }
+            }
+          }
+
+          const speedMps = 19 / 3.6; // ~5.28 m/s
+          const dwellAhead = veh.isDwelling ? (veh.dwellRemainingSeconds ?? 0) : 0;
+          const etaSeconds = isAtStop ? 0 : Math.round(veh.distAhead / speedMps + intermediateDwells + dwellAhead);
           const etaMin = Math.ceil(etaSeconds / 60);
 
           let displayStatus: "en-parada" | "arribando" | "minutos";
@@ -115,15 +131,19 @@ export class TransportService implements IDataService {
             displayLabel = `${etaMin} min`;
           }
 
+          const isVuelta = parada.id.includes('stop-65-1') && parada.id !== 'stop-65-01';
+          const directionColor = isVuelta ? '#EF4444' : '#0EA5E9';
+          const directionRamal = isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas';
+
           liveLlegadas.push({
             lineaId: linea.id,
             lineaNumero: linea.numero,
-            colorHex: linea.colorHex,
-            ramal: linea.ramales[idx] || linea.ramales[0] || "Troncal",
+            colorHex: directionColor,
+            ramal: directionRamal,
             minutos: isAtStop ? 0 : etaMin,
             distanciaMetros: Math.round(veh.distAhead),
             interno: veh.unitId,
-            ocupacion: isAtStop ? "alta" : etaMin <= 4 ? "media" : "baja",
+            ocupacion: isAtStop ? "alta" : etaMin <= 3 ? "media" : "baja",
             displayStatus,
             displayLabel,
           });
@@ -151,32 +171,36 @@ export class TransportService implements IDataService {
       if (!linea) return;
 
       const seed = deterministicHash(paradaId + lId);
-      const baseMin = (seed % 6) + 2;
-      const interno1 = 1000 + (seed % 800);
-      const interno2 = 2000 + ((seed >> 2) % 800);
+      const baseMin = (seed % 4) + 1;
+      const interno1 = "25";
+      const interno2 = "48";
+
+      const isVuelta = paradaId.includes('stop-65-1') && paradaId !== 'stop-65-01';
+      const directionColor = isVuelta ? '#EF4444' : '#0EA5E9';
+      const directionRamal = isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas';
 
       llegadas.push({
         lineaId: linea.id,
         lineaNumero: linea.numero,
-        colorHex: linea.colorHex,
-        ramal: linea.ramales[0] || "Troncal",
+        colorHex: directionColor,
+        ramal: directionRamal,
         minutos: baseMin,
-        distanciaMetros: baseMin * 260,
-        interno: `${interno1}`,
-        ocupacion: baseMin < 4 ? "alta" : baseMin < 7 ? "media" : "baja",
-        displayStatus: "minutos",
-        displayLabel: `${baseMin} min`,
+        distanciaMetros: baseMin * 310,
+        interno: interno1,
+        ocupacion: baseMin <= 2 ? "alta" : "media",
+        displayStatus: baseMin <= 1 ? "en-parada" : baseMin <= 2 ? "arribando" : "minutos",
+        displayLabel: baseMin <= 1 ? "En parada" : baseMin <= 2 ? "Arribando" : `${baseMin} min`,
       });
 
       if (linea.frecuenciaPicoMin > 0) {
         llegadas.push({
           lineaId: linea.id,
           lineaNumero: linea.numero,
-          colorHex: linea.colorHex,
-          ramal: linea.ramales[1] || linea.ramales[0] || "Troncal",
+          colorHex: directionColor,
+          ramal: directionRamal,
           minutos: baseMin + linea.frecuenciaPicoMin,
-          distanciaMetros: (baseMin + linea.frecuenciaPicoMin) * 270,
-          interno: `${interno2}`,
+          distanciaMetros: (baseMin + linea.frecuenciaPicoMin) * 310,
+          interno: interno2,
           ocupacion: "baja",
           displayStatus: "minutos",
           displayLabel: `${baseMin + linea.frecuenciaPicoMin} min`,
@@ -187,7 +211,7 @@ export class TransportService implements IDataService {
     return llegadas.sort((a, b) => a.minutos - b.minutos);
   }
 
-  // --- Aliases estáticos y en inglés (skill-maqueta-oficial.txt) ---
+  // --- Aliases estáticos y de compatibilidad ---
 
   public static getLines(): Line[] {
     return LINEAS_MOCK;
@@ -220,7 +244,6 @@ export class TransportService implements IDataService {
     return new TransportService().getLlegadas(stopId, positions);
   }
 
-  // Compatibilidad con la UI actual
   public static getLineas(): Linea[] {
     return LINEAS_MOCK;
   }

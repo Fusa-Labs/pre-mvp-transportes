@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import DynamicMap from "@/components/map/DynamicMap";
 import FloatingSearch from "@/components/ui-shell/FloatingSearch";
-import LineSelectorBar from "@/components/ui-shell/LineSelectorBar";
 import BottomSheetPanel from "@/components/ui-shell/BottomSheetPanel";
 import { TransportService } from "@/lib/services/transport-service";
 import { subscribeToPositions } from "@/mock/live";
@@ -12,7 +11,7 @@ import { getRouteTrack, stopsAlongRoute, busProgressOn } from "@/lib/map/route-p
 import type { VehiclePosition } from "@/lib/data-service";
 import type { CameraMode } from "@/lib/map/camera-controller";
 import { Parada } from "@/types/transport";
-import { Navigation, RotateCcw, Bus, Eye } from "lucide-react";
+import { Navigation, RotateCcw, Eye } from "lucide-react";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
@@ -34,10 +33,10 @@ export default function TransportesAppPage() {
 
   const [positions, setPositions] = useState<VehiclePosition[]>([]);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>({
-    lat: -34.6040,
-    lng: -58.3810,
+    lat: -34.604463,
+    lng: -58.434711,
   });
-  const [selectedLineaId, setSelectedLineaId] = useState<string | null>("line-200");
+  const [selectedLineaId, setSelectedLineaId] = useState<string | null>("line-65");
   const [selectedParada, setSelectedParada] = useState<Parada | null>(paradas[0] || null);
   const [selectedVehiculo, setSelectedVehiculo] = useState<VehiclePosition | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
@@ -97,9 +96,29 @@ export default function TransportesAppPage() {
     return busProgressOn(track, { lng: selectedVehiculo.lng, lat: selectedVehiculo.lat });
   }, [selectedVehiculo]);
 
+  const busAlongM = useMemo(() => {
+    if (!selectedVehiculo) return 0;
+    const coords = MOCK_ROUTES[selectedVehiculo.lineId];
+    if (!coords || coords.length < 2) return 0;
+    const track = getRouteTrack(selectedVehiculo.lineId, coords);
+    if (!track) return 0;
+    return track.project(selectedVehiculo.lng, selectedVehiculo.lat).alongM;
+  }, [selectedVehiculo]);
+
   const handleSelectParada = useCallback((parada: Parada) => {
     setSelectedParada(parada);
+    setSelectedVehiculo(null);
+    setCameraMode("overview");
   }, []);
+
+  const handleSelectStopById = useCallback((stopId: string) => {
+    const found = paradas.find((p) => p.id === stopId);
+    if (found) {
+      setSelectedParada(found);
+      setSelectedVehiculo(null);
+      setCameraMode("overview");
+    }
+  }, [paradas]);
 
   const handleSelectLinea = useCallback((lineaId: string | null) => {
     setSelectedLineaId(lineaId);
@@ -120,14 +139,14 @@ export default function TransportesAppPage() {
   }, []);
 
   const handleResetCamera = useCallback(() => {
-    setSelectedLineaId("line-200");
+    setSelectedLineaId("line-65");
     setSelectedVehiculo(null);
     setCameraMode("overview");
     if (paradas[0]) setSelectedParada(paradas[0]);
   }, [paradas]);
 
   return (
-    <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-slate-100 dark:bg-slate-950 touch-manipulation">
+    <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-canvas text-foreground touch-manipulation">
       {/* 1. Header Flotante Superior: Safe-Area-Top (Notch / Dynamic Island) */}
       <div className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col gap-2">
         <FloatingSearch
@@ -135,12 +154,6 @@ export default function TransportesAppPage() {
           paradas={paradas}
           onSelectLinea={handleSelectLinea}
           onSelectParada={handleSelectParada}
-        />
-
-        <LineSelectorBar
-          lineas={lineas}
-          selectedLineaId={selectedLineaId}
-          onSelectLinea={handleSelectLinea}
         />
       </div>
 
@@ -150,11 +163,13 @@ export default function TransportesAppPage() {
           positions={positions}
           highlightLines={highlightLines}
           onBusSelect={handleBusSelect}
+          onStopSelect={handleSelectStopById}
+          selectedStopId={selectedParada?.id || null}
           selectedKey={selectedKey}
           cameraMode={cameraMode}
           onCameraModeChange={setCameraMode}
           cameraBottomPadding={140}
-          center={[-58.3805, -34.6080]}
+          center={[-58.4250, -34.5950]}
           theme={resolvedTheme}
           className="w-full h-full"
         />
@@ -168,9 +183,9 @@ export default function TransportesAppPage() {
           onClick={handleResetCamera}
           title="Centrar en AMBA"
           aria-label="Centrar vista en AMBA"
-          className="w-11 h-11 rounded-full bg-white/95 dark:bg-zinc-900/95 shadow-lg border border-slate-200/80 dark:border-zinc-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-white active:scale-90 transition-all"
+          className="w-10 h-10 rounded-full bg-canvas/95 border border-hairline flex items-center justify-center text-foreground hover:bg-canvas-soft active:scale-95 transition-all"
         >
-          <RotateCcw className="w-5 h-5" />
+          <RotateCcw className="w-4 h-4" />
         </button>
 
         {selectedVehiculo && (
@@ -178,45 +193,35 @@ export default function TransportesAppPage() {
             onClick={handleToggle3D}
             title={cameraMode === "navigation-vehicle" ? "Vista 2D Cenital" : "Seguir en 3D"}
             aria-label="Alternar modo 3D"
-            className={`w-11 h-11 rounded-full shadow-lg border flex items-center justify-center active:scale-90 transition-all ${
+            className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
               cameraMode === "navigation-vehicle"
-                ? "bg-amber-500 text-slate-950 border-amber-400 font-bold"
-                : "bg-white/95 dark:bg-zinc-900/95 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-zinc-700"
+                ? "bg-primary text-primary-foreground border-primary font-medium"
+                : "bg-canvas/95 text-foreground border-hairline hover:bg-canvas-soft"
             }`}
           >
-            <Eye className="w-5 h-5" />
+            <Eye className="w-4 h-4" />
           </button>
         )}
 
         <button
           onClick={() => {
             setUserLocation((prev) =>
-              prev ? null : { lat: -34.6040, lng: -58.3810 }
+              prev ? null : { lat: -34.604463, lng: -58.434711 }
             );
           }}
-          title={userLocation ? "Desactivar mi ubicación simulada" : "Activar mi ubicación simulada (Obelisco)"}
+          title={userLocation ? "Desactivar mi ubicación simulada" : "Activar mi ubicación simulada (Parque Centenario)"}
           aria-label="Alternar mi posición simulada"
-          className={`w-11 h-11 rounded-full shadow-lg border flex items-center justify-center active:scale-90 transition-all ${
+          className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
             userLocation
-              ? "bg-amber-500 text-slate-950 border-amber-400 font-bold"
-              : "bg-white/95 dark:bg-zinc-900/95 text-slate-400 border-slate-200/80 dark:border-zinc-700 hover:bg-white"
+              ? "bg-primary text-primary-foreground border-primary font-medium"
+              : "bg-canvas/95 text-text-muted border-hairline hover:bg-canvas-soft"
           }`}
         >
-          <Navigation className={`w-5 h-5 ${userLocation ? "fill-slate-950" : ""}`} />
+          <Navigation className={`w-4 h-4 ${userLocation ? "fill-current" : ""}`} />
         </button>
       </div>
 
-      {/* 4. Pastilla Informativa de Flota Activa */}
-      <div className="absolute left-4 top-[calc(max(14px,env(safe-area-inset-top))+124px)] z-20 pointer-events-none hidden sm:block">
-        <div className="bg-slate-900/85 backdrop-blur-md text-white px-3.5 py-2 rounded-full border border-slate-700/80 shadow-lg flex items-center gap-2 text-xs font-semibold">
-          <Bus className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>{positions.length} colectivos en vivo</span>
-          <span className="text-slate-500">•</span>
-          <span className="text-emerald-400">AMBA Conectado</span>
-        </div>
-      </div>
-
-      {/* 5. Panel Inferior Deslizable con Safe-Area-Bottom (Home Indicator) */}
+      {/* 4. Panel Inferior Deslizable con Safe-Area-Bottom (Home Indicator) */}
       <BottomSheetPanel
         selectedLinea={selectedLinea}
         selectedParada={selectedParada}
@@ -238,6 +243,7 @@ export default function TransportesAppPage() {
         onToggle3D={selectedVehiculo ? handleToggle3D : undefined}
         timelineStops={timelineStops}
         busProgress={busProgress}
+        busAlongM={busAlongM}
       />
     </main>
   );

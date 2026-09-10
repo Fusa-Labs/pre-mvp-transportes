@@ -14,23 +14,16 @@ export const tokens = {
     borderDark: "#27272a",
   },
 
-  // Colores oficiales de flota por línea (según docs/RECORRIDOS-LINEAS.md)
+  // Colores oficiales Línea 65 (Celeste Ida / Rojo Vuelta)
   fleetColors: [
-    "#1D4ED8", // Índice 0: Azul     -> Línea 200
-    "#FEA619", // Índice 1: Ámbar    -> Línea 210
-    "#006B2C", // Índice 2: Verde    -> Línea 215
-    "#7C3AED", // Índice 3: Violeta  -> Línea 220
-    "#0EA5E9", // Índice 4: Cyan     -> Línea 225
+    "#0EA5E9", // Ida Línea 65 (Celeste)
+    "#EF4444", // Vuelta Línea 65 (Rojo)
   ] as const,
 
   // Contraste de texto sobre color de línea
   lineOnColor: {
-    "#1D4ED8": "#FFFFFF",
-    "#FEA619": "#1E293B",
-    "#006B2C": "#FFFFFF",
-    "#7C3AED": "#FFFFFF",
     "#0EA5E9": "#FFFFFF",
-    "#F59E0B": "#000000",
+    "#EF4444": "#FFFFFF",
   } as const,
 
   // Estados del servicio

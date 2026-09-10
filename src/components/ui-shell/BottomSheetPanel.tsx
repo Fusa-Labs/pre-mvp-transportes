@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence, PanInfo } from "motion/react";
 import {
   Clock,
@@ -21,6 +21,8 @@ import { Eye } from "lucide-react";
 import { computeLineStopStatuses } from "@/lib/services/stop-schedule-service";
 import { StopSequenceItem } from "@/components/ui-shell/StopSequenceItem";
 import { InlineBusIndicator } from "@/components/ui-shell/InlineBusIndicator";
+import { StopDetailCard } from "@/components/ui-shell/StopDetailCard";
+import { TransportService } from "@/lib/services/transport-service";
 
 export type SheetState = "collapsed" | "peek" | "expanded";
 
@@ -38,6 +40,7 @@ interface BottomSheetPanelProps {
   onToggle3D?: () => void;
   timelineStops?: StopAlongRoute[];
   busProgress?: number;
+  busAlongM?: number;
   positions?: VehiclePosition[];
   userLocation?: { lat: number; lng: number } | null;
 }
@@ -62,11 +65,28 @@ export default function BottomSheetPanel({
   onToggle3D,
   timelineStops = [],
   busProgress = 0,
+  busAlongM = 0,
   positions = [],
   userLocation = null,
 }: BottomSheetPanelProps) {
   const [sheetState, setSheetState] = useState<SheetState>("peek");
   const [activeTab, setActiveTab] = useState<"llegadas" | "paradas" | "alertas">("llegadas");
+  const [selectedDetailParada, setSelectedDetailParada] = useState<Parada | null>(null);
+
+  // Al seleccionar una parada (ej: click en el mapa), abrir el sheet en la pestaña 'paradas' con vista de secuencia
+  useEffect(() => {
+    if (selectedParada) {
+      setActiveTab("paradas");
+      setSheetState((current) => (current === "collapsed" ? "peek" : current));
+      setSelectedDetailParada(null); // No mostrar la ficha embebida hasta que el usuario toque la parada en la secuencia
+    }
+  }, [selectedParada]);
+
+  const detailLlegada = useMemo(() => {
+    if (!selectedDetailParada) return null;
+    const items = TransportService.getLlegadasPorParada(selectedDetailParada.id, positions);
+    return items[0] || null;
+  }, [selectedDetailParada, positions]);
 
   const paradasFiltradas = selectedLinea
     ? paradas.filter((p) => p.lineasIds.includes(selectedLinea.id))
@@ -119,46 +139,46 @@ export default function BottomSheetPanel({
       dragConstraints={{ top: 0, bottom: 0 }}
       dragElastic={0.12}
       onDragEnd={handleDragEnd}
-      className={`fixed bottom-0 left-0 right-0 z-40 max-w-lg mx-auto bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-zinc-800 rounded-t-3xl shadow-2xl transition-all duration-300 pointer-events-auto flex flex-col pb-[max(16px,env(safe-area-inset-bottom))] ${heightStyles[sheetState]}`}
+      className={`fixed bottom-0 left-0 right-0 z-40 max-w-lg mx-auto bg-canvas border-t border-hairline rounded-t-[24px] transition-all duration-300 pointer-events-auto flex flex-col pb-[max(16px,env(safe-area-inset-bottom))] ${heightStyles[sheetState]}`}
     >
-      {/* 1. Handle de agarre superior & Barra de Estado Resumen (Touch target de 48px) */}
+      {/* 1. Handle de agarre superior & Barra de Estado Resumen */}
       <div
         onClick={toggleNextState}
-        className="pt-2.5 pb-2 px-5 flex flex-col items-center cursor-pointer select-none shrink-0 min-h-[48px]"
+        className="pt-3 pb-2 px-5 flex flex-col items-center cursor-pointer select-none shrink-0 min-h-[48px]"
       >
-        <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-700 mb-2" />
+        <div className="w-10 h-1 rounded-full bg-hairline mb-2.5" />
 
         <div className="w-full flex items-center justify-between">
           <div className="flex items-center gap-2 truncate">
             {selectedLinea ? (
               <div className="flex items-center gap-2 truncate">
                 <span
-                  className="px-2.5 py-1 rounded-lg text-xs font-black shadow-sm shrink-0"
+                  className="px-3 py-1 rounded-full text-xs font-bold shrink-0"
                   style={{ backgroundColor: selectedLinea.colorHex, color: selectedLinea.textColorHex }}
                 >
-                  LÍNEA {selectedLinea.numero}
+                  Línea {selectedLinea.numero}
                 </span>
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                <span className="text-xs font-semibold text-ink truncate">
                   {selectedLinea.nombre}
                 </span>
               </div>
             ) : selectedParada ? (
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-600 flex items-center justify-center shrink-0">
+              <div className="flex items-center gap-2 text-xs font-semibold text-ink truncate">
+                <div className="w-6 h-6 rounded-full bg-canvas-soft text-text-muted flex items-center justify-center shrink-0">
                   <MapPin className="w-3.5 h-3.5" />
                 </div>
                 <span className="truncate">{selectedParada.nombre}</span>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
-                <BusFront className="w-4 h-4 text-amber-500" />
+              <div className="flex items-center gap-2 text-xs font-semibold text-ink">
+                <BusFront className="w-4 h-4 text-text-muted" />
                 <span>Monitoreo de Transporte AMBA</span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 text-slate-400 shrink-0 ml-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider hidden sm:inline">
+          <div className="flex items-center gap-1.5 text-text-muted shrink-0 ml-2">
+            <span className="text-xs capitalize hidden sm:inline">
               {sheetState}
             </span>
             {sheetState === "expanded" ? (
@@ -170,62 +190,46 @@ export default function BottomSheetPanel({
         </div>
       </div>
 
-      {/* 2. Tabs de Navegación (Touch targets ergonómicos de 44px de altura mínima) */}
+      {/* 2. Tabs de Navegación — Segmented Control Stadium Pill (DESIGN.MD) */}
       {sheetState !== "collapsed" && (
-        <div className="px-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-around shrink-0 min-h-[44px]">
-          <button
-            onClick={() => setActiveTab("llegadas")}
-            className={`min-h-[44px] px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 touch-manipulation ${
-              activeTab === "llegadas"
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Llegadas ({llegadas.length})</span>
-            {activeTab === "llegadas" && (
-              <motion.div
-                layoutId="sheet-tab-indicator"
-                className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-              />
-            )}
-          </button>
+        <div className="px-4 py-1.5 border-b border-hairline-soft shrink-0">
+          <div className="bg-canvas-soft p-1 rounded-full flex items-center justify-between gap-1">
+            <button
+              onClick={() => setActiveTab("llegadas")}
+              className={`flex-1 min-h-[36px] px-3 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation ${
+                activeTab === "llegadas"
+                  ? "bg-canvas text-ink border border-hairline-soft"
+                  : "text-text-muted hover:text-ink"
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Llegadas ({llegadas.length})</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab("paradas")}
-            className={`min-h-[44px] px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 touch-manipulation ${
-              activeTab === "paradas"
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            }`}
-          >
-            <MapPin className="w-3.5 h-3.5" />
-            <span>Paradas ({paradasFiltradas.length})</span>
-            {activeTab === "paradas" && (
-              <motion.div
-                layoutId="sheet-tab-indicator"
-                className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-              />
-            )}
-          </button>
+            <button
+              onClick={() => setActiveTab("paradas")}
+              className={`flex-1 min-h-[36px] px-3 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation ${
+                activeTab === "paradas"
+                  ? "bg-canvas text-ink border border-hairline-soft"
+                  : "text-text-muted hover:text-ink"
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              <span>Paradas ({paradasFiltradas.length})</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab("alertas")}
-            className={`min-h-[44px] px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 touch-manipulation ${
-              activeTab === "alertas"
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            }`}
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>Alertas ({alertasFiltradas.length})</span>
-            {activeTab === "alertas" && (
-              <motion.div
-                layoutId="sheet-tab-indicator"
-                className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-              />
-            )}
-          </button>
+            <button
+              onClick={() => setActiveTab("alertas")}
+              className={`flex-1 min-h-[36px] px-3 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation ${
+                activeTab === "alertas"
+                  ? "bg-canvas text-ink border border-hairline-soft"
+                  : "text-text-muted hover:text-ink"
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Alertas ({alertasFiltradas.length})</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -234,31 +238,30 @@ export default function BottomSheetPanel({
         <div className="flex-1 p-4 overflow-y-auto no-scrollbar space-y-3 overscroll-contain">
           {/* Tarjeta de Unidad en Vivo Seleccionada */}
           {selectedVehiculo && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 shadow-sm space-y-3">
+            <div className="bg-canvas-soft border border-hairline-soft rounded-[24px] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div
-                    className="px-2.5 py-1 rounded-lg text-white font-black text-sm shadow-sm"
+                    className="px-3 py-1 rounded-full text-white font-bold text-xs shrink-0"
                     style={{ backgroundColor: selectedLinea?.colorHex || "#1D4ED8" }}
                   >
                     {selectedLinea?.numero || selectedVehiculo.lineId.replace("line-", "")}
                   </div>
                   <div>
-                    <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                      Interno {selectedVehiculo.unitId}
+                    <h4 className="font-semibold text-sm text-ink">
+                      Unidad {selectedVehiculo.unitId}
                     </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="text-[11px] text-text-muted">
                       {selectedLinea?.nombre || "Unidad en Circulación"}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-col items-end">
-                  <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums">
+                  <span className="text-xs font-semibold text-ink tabular-nums">
                     {Math.round(selectedVehiculo.speed)} km/h
                   </span>
-                  <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[11px] font-medium text-text-muted">
                     GPS en vivo
                   </span>
                 </div>
@@ -267,10 +270,10 @@ export default function BottomSheetPanel({
               {onToggle3D && (
                 <button
                   onClick={onToggle3D}
-                  className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm touch-manipulation min-h-[44px] ${
+                  className={`w-full min-h-[40px] px-4 rounded-full text-xs font-semibold transition-all flex items-center justify-center gap-2 touch-manipulation ${
                     cameraMode === "navigation-vehicle"
-                      ? "bg-amber-500 text-slate-950 font-black hover:bg-amber-400"
-                      : "bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-zinc-700 hover:bg-slate-50"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-canvas text-ink border border-hairline hover:bg-canvas-soft"
                   }`}
                 >
                   <Eye className="w-4 h-4" />
@@ -283,16 +286,16 @@ export default function BottomSheetPanel({
               )}
 
               {timelineStops.length > 0 && (
-                <div className="pt-2 border-t border-amber-500/20">
-                  <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">
+                <div className="pt-3 border-t border-hairline-soft">
+                  <p className="text-xs font-semibold text-text-muted mb-2">
                     Cronograma de paradas
                   </p>
                   <RouteTimeline
-                    color={selectedLinea?.colorHex || "#1D4ED8"}
+                    color={selectedLinea?.colorHex || "#059669"}
                     onColor="#FFFFFF"
                     stops={timelineStops}
                     busProgress={busProgress}
-                    busAlongM={0}
+                    busAlongM={busAlongM}
                     speedKmh={selectedVehiculo.speed || 15}
                     shortName={selectedLinea?.numero || selectedVehiculo.lineId.replace("line-", "")}
                   />
@@ -313,17 +316,17 @@ export default function BottomSheetPanel({
               >
                 {/* Ficha técnica compacta */}
                 {selectedLinea && (
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 text-xs space-y-1.5">
+                  <div className="bg-canvas-soft border border-hairline-soft rounded-[16px] p-3 text-xs space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-amber-900 dark:text-amber-300">
+                      <span className="font-semibold text-ink">
                         {selectedLinea.empresa}
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold text-[10px]">
+                      <span className="px-2.5 py-0.5 rounded-full bg-canvas border border-hairline-soft text-text-muted font-medium text-[11px]">
                         Frecuencia: {selectedLinea.frecuenciaPicoMin} min
                       </span>
                     </div>
                     {selectedLinea.mensajeEstado && (
-                      <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+                      <p className="text-[11px] text-text-muted leading-relaxed">
                         {selectedLinea.mensajeEstado}
                       </p>
                     )}
@@ -332,34 +335,34 @@ export default function BottomSheetPanel({
 
                 {/* Próximos colectivos (ETAs) */}
                 <div className="space-y-2">
-                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                  <p className="text-xs font-semibold text-text-muted px-1">
                     Próximos arribos estimados
                   </p>
 
                   {llegadas.length === 0 ? (
-                    <div className="text-center py-6 text-slate-400 text-xs">
+                    <div className="text-center py-6 text-text-muted text-xs">
                       No hay arribos programados en esta parada en este momento.
                     </div>
                   ) : (
                     llegadas.map((llegada, idx) => (
                       <div
                         key={`${llegada.lineaId}-${llegada.interno}-${idx}`}
-                        className="bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-700/60 rounded-2xl p-3 flex items-center justify-between shadow-sm"
+                        className="bg-canvas border border-hairline-soft rounded-[16px] p-3 flex items-center justify-between transition-colors"
                       >
                         <div className="flex items-center gap-3">
                           <div
-                            className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-base shadow-sm shrink-0"
-                            style={{ backgroundColor: llegada.colorHex, color: "#000" }}
+                            className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 text-white"
+                            style={{ backgroundColor: llegada.colorHex }}
                           >
                             {llegada.lineaNumero}
                           </div>
 
                           <div>
-                            <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                            <p className="text-xs font-semibold text-ink">
                               {llegada.ramal}
                             </p>
-                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
-                              <span>Coche #{llegada.interno}</span>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text-muted">
+                              <span>Unidad {llegada.interno}</span>
                               <span>•</span>
                               <span className="flex items-center gap-1">
                                 <Users className="w-3 h-3" />
@@ -372,33 +375,25 @@ export default function BottomSheetPanel({
                         <div className="text-right shrink-0">
                           <div className="flex items-baseline justify-end gap-1">
                             {llegada.displayStatus === "en-parada" || llegada.minutos <= 0 ? (
-                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                              <span className="text-xs font-bold text-ink flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-ink animate-pulse" />
                                 En parada
                               </span>
                             ) : llegada.displayStatus === "arribando" || llegada.minutos <= 2 ? (
-                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span className="text-xs font-bold text-ink flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-ink animate-pulse" />
                                 Arribando
                               </span>
                             ) : (
                               <>
-                                <span
-                                  className={`text-xl font-black ${
-                                    llegada.minutos <= 3
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : llegada.minutos <= 7
-                                      ? "text-amber-600 dark:text-amber-400"
-                                      : "text-slate-700 dark:text-slate-300"
-                                  }`}
-                                >
+                                <span className="text-lg font-bold text-ink tabular-nums">
                                   {llegada.minutos}
                                 </span>
-                                <span className="text-[11px] font-bold text-slate-400">min</span>
+                                <span className="text-xs font-medium text-text-muted">min</span>
                               </>
                             )}
                           </div>
-                          <p className="text-[10px] text-slate-400 font-medium">
+                          <p className="text-[11px] text-text-muted font-normal">
                             {llegada.distanciaMetros <= 15 ? "En andén" : `a ${llegada.distanciaMetros}m`}
                           </p>
                         </div>
@@ -423,9 +418,26 @@ export default function BottomSheetPanel({
                     Secuencia de paradas ({paradasFiltradas.length})
                   </p>
                   <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                    Tocar para enfocar y ver horarios
+                    Tocar para ver información detallada
                   </span>
                 </div>
+
+                {/* Ficha embebida de detalle de parada (dentro del modal, sin ventana emergente) */}
+                {selectedDetailParada && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98, y: -6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98, y: -6 }}
+                    className="mb-3"
+                  >
+                    <StopDetailCard
+                      parada={selectedDetailParada}
+                      linea={selectedLinea}
+                      proximoArribo={detailLlegada}
+                      onClose={() => setSelectedDetailParada(null)}
+                    />
+                  </motion.div>
+                )}
 
                 {stopStatuses.length > 0 ? (
                   <div className="space-y-0.5">
@@ -445,7 +457,10 @@ export default function BottomSheetPanel({
                           <StopSequenceItem
                             status={status}
                             isSelected={isSelected}
-                            onSelect={() => onSelectParada(status.stop)}
+                            onSelect={() => {
+                              onSelectParada(status.stop);
+                              setSelectedDetailParada(status.stop);
+                            }}
                             isFirst={idx === 0}
                             isLast={idx === stopStatuses.length - 1}
                           />
@@ -467,41 +482,38 @@ export default function BottomSheetPanel({
                     return (
                       <div
                         key={parada.id}
-                        onClick={() => onSelectParada(parada)}
-                        className={`min-h-[48px] flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all active:scale-[0.98] ${
+                        onClick={() => {
+                          onSelectParada(parada);
+                          setSelectedDetailParada(parada);
+                        }}
+                        className={`min-h-[44px] flex items-center gap-3 px-3 py-2 rounded-full cursor-pointer transition-colors ${
                           isSelected
-                            ? "bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700"
-                            : "hover:bg-slate-100 dark:hover:bg-zinc-800"
+                            ? "bg-canvas-soft border border-hairline"
+                            : "hover:bg-canvas-soft"
                         }`}
                       >
                         <div className="flex flex-col items-center shrink-0">
                           <div
-                            className={`w-3.5 h-3.5 rounded-full border-2 ${
+                            className={`w-3 h-3 rounded-full border-2 ${
                               isSelected
-                                ? "bg-amber-500 border-white ring-2 ring-amber-500"
-                                : "bg-slate-400 dark:bg-zinc-600 border-white dark:border-zinc-900"
+                                ? "bg-ink border-canvas ring-2 ring-ink"
+                                : "bg-text-faint border-canvas"
                             }`}
                           />
                         </div>
 
                         <div className="flex-1 truncate">
-                          <p
-                            className={`text-xs font-bold truncate ${
-                              isSelected
-                                ? "text-amber-800 dark:text-amber-300"
-                                : "text-slate-800 dark:text-slate-200"
-                            }`}
-                          >
+                          <p className="text-xs font-semibold text-ink truncate">
                             {parada.nombre}
                           </p>
-                          <p className="text-[11px] text-slate-500 truncate">{parada.direccion}</p>
+                          <p className="text-[11px] text-text-muted truncate">{parada.direccion}</p>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
                           {parada.lineasIds.slice(0, 3).map((lId) => (
                             <span
                               key={lId}
-                              className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-zinc-700 text-[9px] font-bold text-slate-700 dark:text-slate-200"
+                              className="px-2 py-0.5 rounded-full bg-canvas border border-hairline-soft text-[10px] font-semibold text-text-muted"
                             >
                               {lId.replace("linea-", "").replace("line-", "")}
                             </span>
@@ -523,35 +535,35 @@ export default function BottomSheetPanel({
                 exit={{ opacity: 0, y: -6 }}
                 className="space-y-2.5"
               >
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                <p className="text-xs font-semibold text-text-muted px-1">
                   Novedades operativas del servicio
                 </p>
 
                 {alertasFiltradas.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs flex flex-col items-center gap-1.5">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                    <span>Todas las líneas operando con normalidad.</span>
+                  <div className="text-center py-6 text-text-muted text-xs flex flex-col items-center gap-2">
+                    <CheckCircle2 className="w-6 h-6 text-text-muted" />
+                    <span>Línea 65 operando con normalidad.</span>
                   </div>
                 ) : (
                   alertasFiltradas.map((alerta) => (
                     <div
                       key={alerta.id}
-                      className="p-3 rounded-2xl border bg-amber-50/70 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50 shadow-sm"
+                      className="p-3.5 rounded-[16px] border border-hairline-soft bg-canvas-soft space-y-1.5"
                     >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
-                            LÍNEA {alerta.lineaNumero}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">
+                            Línea {alerta.lineaNumero}
                           </span>
-                          <span className="text-xs font-bold text-amber-900 dark:text-amber-300">
+                          <span className="text-xs font-semibold text-ink">
                             {alerta.titulo}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-medium">
+                        <span className="text-[10px] text-text-muted font-normal">
                           {alerta.fechaHora}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      <p className="text-xs text-text-muted leading-relaxed">
                         {alerta.descripcion}
                       </p>
                     </div>

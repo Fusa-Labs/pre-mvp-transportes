@@ -1,11 +1,11 @@
 /**
  * Servicio de Telemetría, Estimaciones de Arribo y Horarios por Parada
- * Arquitectura modular y pura para la Línea 200 (AMBA).
+ * Arquitectura modular y pura para la Línea 65 (AMBA - La Nueva Metropol S.A.).
  */
 
 import { Parada } from "@/types/transport";
 import type { VehiclePosition } from "@/lib/data-service";
-import { getRouteTrack, RouteTrack } from "@/lib/map/route-progress";
+import { getRouteTrack } from "@/lib/map/route-progress";
 import { MOCK_ROUTES } from "@/mock/data";
 
 export interface WalkFeasibility {
@@ -25,12 +25,12 @@ export interface StopLiveStatus {
   etaSeconds: number;
   clockTime: string; // "10:18"
   isImminent: boolean; // arribando o en parada
-  isAtStop: boolean; // < 1 min o dwelling
+  isAtStop: boolean; // <= 1 min o dwelling
   displayStatus: "en-parada" | "arribando" | "minutos";
   displayLabel: string; // "En parada" | "Arribando" | "X min"
   statusColor: "emerald" | "amber" | "slate";
   walkComparison: WalkFeasibility | null;
-  scheduledNextSlots: string[]; // ["10:18", "10:33", "10:48"]
+  scheduledNextSlots: string[]; // ["10:18", "10:23", "10:28"]
 }
 
 export interface ActiveBusInTransit {
@@ -42,7 +42,7 @@ export interface ActiveBusInTransit {
   progressInSegment: number; // 0..1
 }
 
-const AVERAGE_BUS_SPEED_KMH = 16;
+const AVERAGE_BUS_SPEED_KMH = 19; // Velocidad comercial real calculada para ciclo de 120 min
 const WALKING_SPEED_M_PER_MIN = 80; // ~4.8 km/h
 
 /** Rumbo y distancia geodésica local en metros */
@@ -61,24 +61,24 @@ function formatClockTime(date: Date, addMinutes: number): string {
 }
 
 /**
- * Calcula los próximos 3-4 horarios programados determinísticos para una parada
- * basándose en la frecuencia de cabecera y el tiempo de viaje acumulado.
+ * Calcula los próximos horarios programados determinísticos para una parada
+ * basándose en la frecuencia oficial de 5 minutos de la Línea 65.
  */
 export function getScheduledSlotsForStop(
   stopAlongM: number,
-  frequencyMin = 15,
-  count = 3,
+  frequencyMin = 5,
+  count = 4,
   referenceDate = new Date(),
 ): string[] {
   const currentTotalMin = referenceDate.getHours() * 60 + referenceDate.getMinutes();
   const travelFromStartMin = Math.round((stopAlongM / 1000 / AVERAGE_BUS_SPEED_KMH) * 60);
 
-  // Primera salida del día: 05:00 (300 min)
-  const startOfDayMin = 5 * 60 + travelFromStartMin;
+  // Primera salida del día: 04:30 (270 min)
+  const startOfDayMin = 4 * 60 + 30 + travelFromStartMin;
   const slots: string[] = [];
 
   let slotMin = startOfDayMin;
-  while (slotMin < 23 * 60) {
+  while (slotMin < 24 * 60 + 120) {
     if (slotMin >= currentTotalMin) {
       const h = String(Math.floor(slotMin / 60) % 24).padStart(2, "0");
       const m = String(slotMin % 60).padStart(2, "0");
@@ -129,12 +129,12 @@ export function calculateWalkFeasibility(
 }
 
 /**
- * Computa el estado en vivo de todas las paradas de la Línea 200:
- * - Proyección exacta sobre el trazado OSRM.
+ * Computa el estado en vivo de todas las paradas de la Línea:
+ * - Proyección exacta sobre el trazado oficial.
  * - Matching del colectivo más próximo que viaja hacia cada parada.
- * - ETA en minutos y reloj ("10:18 hs").
+ * - ETA en minutos y reloj ("10:18 hs") incorporando paradas intermedias de 20s.
  * - Factibilidad a pie si hay GPS de usuario.
- * - Horarios programados para el micro-acordeón.
+ * - Horarios programados con frecuencia de 5 minutos.
  */
 export function computeLineStopStatuses(
   lineId: string,
@@ -176,12 +176,14 @@ export function computeLineStopStatuses(
     };
   });
 
-  // 3. Calcular ETA hacia cada parada buscando el colectivo upstream más cercano en el circuito
+  // 3. Calcular ETA hacia cada parada buscando el colectivo upstream más cercano
   const statuses: StopLiveStatus[] = projectedStops.map(({ stop, index, alongM }) => {
     let nearestUnitId: string | null = null;
     let minDistanceAhead = Infinity;
     let effectiveSpeed = AVERAGE_BUS_SPEED_KMH;
     let nearestVehIsDwelling = false;
+    let nearestVehDwellRemaining = 0;
+    let nearestVehAlongM = 0;
 
     for (const veh of projectedVehicles) {
       // Distancia circular a recorrer por el colectivo hasta alcanzar la parada
@@ -191,19 +193,34 @@ export function computeLineStopStatuses(
         nearestUnitId = veh.unitId;
         effectiveSpeed = veh.speed > 0 ? veh.speed : AVERAGE_BUS_SPEED_KMH;
         nearestVehIsDwelling = veh.isDwelling && (veh.currentStopId === stop.id || distAhead <= 25);
+        nearestVehDwellRemaining = veh.dwellRemainingSeconds;
+        nearestVehAlongM = veh.alongM;
       }
     }
 
-    // Si no hay unidades, usar fallback de frecuencia
-    const distanceAheadM = minDistanceAhead === Infinity ? 1200 : minDistanceAhead;
+    // Si no hay unidades activas registradas, usar fallback de frecuencia
+    const distanceAheadM = minDistanceAhead === Infinity ? 1500 : minDistanceAhead;
     const isAtStop = nearestVehIsDwelling || distanceAheadM <= 12;
 
-    const speedMps = (effectiveSpeed || AVERAGE_BUS_SPEED_KMH) / 3.6;
-    const etaSeconds = isAtStop ? 0 : Math.round(distanceAheadM / speedMps);
+    // Contar paradas intermedias entre el colectivo y la parada objetivo (cada una suma 20s de dwell)
+    let intermediateDwellsSec = 0;
+    if (!isAtStop && minDistanceAhead !== Infinity) {
+      for (const otherStop of projectedStops) {
+        const d = ((otherStop.alongM - nearestVehAlongM) % totalLength + totalLength) % totalLength;
+        if (d > 20 && d < distanceAheadM - 20) {
+          intermediateDwellsSec += 20;
+        }
+      }
+    }
+
+    const cruiseSpeedMps = AVERAGE_BUS_SPEED_KMH / 3.6;
+    const transitSeconds = Math.round(distanceAheadM / cruiseSpeedMps);
+    const dwellAhead = nearestVehIsDwelling ? nearestVehDwellRemaining : 0;
+    const etaSeconds = isAtStop ? 0 : transitSeconds + intermediateDwellsSec + dwellAhead;
     const etaMin = Math.ceil(etaSeconds / 60);
 
     // Regla de negocio estricta del usuario:
-    // - Menor a 1 min (o en parada): "En parada"
+    // - Menor o igual a 1 min (o en parada): "En parada"
     // - Entre 1 y 2 min: "Arribando"
     // - Mayor a 2 min: "X min"
     let displayStatus: "en-parada" | "arribando" | "minutos";
@@ -221,14 +238,14 @@ export function computeLineStopStatuses(
     } else {
       displayStatus = "minutos";
       displayLabel = `${etaMin} min`;
-      statusColor = etaMin <= 6 ? "emerald" : etaMin <= 11 ? "amber" : "slate";
+      statusColor = etaMin <= 5 ? "emerald" : etaMin <= 10 ? "amber" : "slate";
     }
 
     const isImminent = displayStatus === "en-parada" || displayStatus === "arribando";
     const clockMinutesToAdd = displayStatus === "en-parada" ? 0 : displayStatus === "arribando" ? 1 : etaMin;
     const clockTime = formatClockTime(referenceDate, clockMinutesToAdd);
     const walkComparison = calculateWalkFeasibility(userLocation, stop, etaMin);
-    const scheduledNextSlots = getScheduledSlotsForStop(alongM, 15, 3, referenceDate);
+    const scheduledNextSlots = getScheduledSlotsForStop(alongM, 5, 4, referenceDate);
 
     return {
       stop,
@@ -249,7 +266,7 @@ export function computeLineStopStatuses(
     };
   });
 
-  // 4. Detectar qué unidades están navegando entre dos paradas consecutivas (Sugerencia 1)
+  // 4. Detectar qué unidades están navegando entre dos paradas consecutivas
   const busesInTransit: ActiveBusInTransit[] = [];
   for (const veh of projectedVehicles) {
     for (let i = 0; i < projectedStops.length; i++) {

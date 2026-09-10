@@ -19,15 +19,17 @@ export default function LineSelectorBar({
   selectedLineaId,
   onSelectLinea,
 }: LineSelectorBarProps) {
+  if (lineas.length <= 1) return null;
+
   return (
     <div className="w-full flex items-center gap-2 overflow-x-auto no-scrollbar py-1 touch-pan-x overscroll-x-contain">
       {/* Opción 'Todas' las líneas */}
       <button
         onClick={() => onSelectLinea(null)}
-        className={`min-h-[40px] px-3.5 py-2 rounded-full text-xs font-bold transition-all shadow-md shrink-0 flex items-center gap-1.5 touch-manipulation active:scale-95 ${
+        className={`min-h-[36px] px-4 py-1.5 rounded-full text-xs font-semibold transition-colors shrink-0 flex items-center gap-1.5 touch-manipulation ${
           selectedLineaId === null
-            ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 scale-105 ring-2 ring-offset-2 ring-slate-900 dark:ring-white"
-            : "bg-white/95 dark:bg-zinc-900/95 text-slate-700 dark:text-slate-300 hover:bg-white"
+            ? "bg-primary text-primary-foreground"
+            : "bg-canvas text-ink border border-hairline hover:bg-canvas-soft"
         }`}
       >
         <Radio className="w-3.5 h-3.5" />
@@ -41,10 +43,10 @@ export default function LineSelectorBar({
           <button
             key={linea.id}
             onClick={() => onSelectLinea(isSelected ? null : linea.id)}
-            className={`min-h-[40px] px-3.5 py-2 rounded-full text-xs font-black transition-all shadow-md shrink-0 flex items-center gap-1.5 touch-manipulation active:scale-95 ${
+            className={`min-h-[36px] px-4 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 touch-manipulation ${
               isSelected
-                ? "ring-2 ring-offset-2 ring-slate-900 dark:ring-white scale-105 shadow-lg"
-                : "opacity-90 hover:opacity-100 hover:scale-102"
+                ? "ring-2 ring-ink ring-offset-2 ring-offset-canvas"
+                : "opacity-90 hover:opacity-100"
             }`}
             style={{
               backgroundColor: linea.colorHex,
