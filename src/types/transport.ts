@@ -1,4 +1,22 @@
+/**
+ * Contratos de dominio de Transporte para la maqueta AMBA.
+ * Cumple con docs/fase implementacion oficial transportes.txt y docs/skill-maqueta-oficial.txt
+ */
+
 export type EstadoLinea = "normal" | "demoras" | "interrumpido";
+
+export interface CoordenadaGPS {
+  lat: number;
+  lng: number;
+}
+
+export type GpsCoordinate = [number, number]; // [lng, lat] para GeoJSON / MapLibre
+
+export interface Ramal {
+  id: string;
+  nombre: string;
+  sentido: "ida" | "vuelta";
+}
 
 export interface Linea {
   id: string;
@@ -13,6 +31,9 @@ export interface Linea {
   ramales: string[];
 }
 
+// Alias de dominio en inglés conforme a skill-maqueta-oficial.txt
+export type Line = Linea;
+
 export interface Parada {
   id: string;
   nombre: string;
@@ -22,13 +43,17 @@ export interface Parada {
   lineasIds: string[];
 }
 
+export type Stop = Parada;
+
 export interface Recorrido {
   id: string;
   lineaId: string;
   ramal: string;
   sentido: "ida" | "vuelta";
-  coordenadas: [number, number][]; // [lng, lat] para MapLibre / GeoJSON
+  coordenadas: [number, number][]; // [lng, lat] GeoJSON coordinates
 }
+
+export type Route = Recorrido;
 
 export interface VehiculoEnVivo {
   id: string;
@@ -44,6 +69,8 @@ export interface VehiculoEnVivo {
   ocupacion: "baja" | "media" | "alta";
 }
 
+export type Vehicle = VehiculoEnVivo;
+
 export type TipoAlerta = "demora" | "corte" | "desvio" | "informativo";
 
 export interface AlertaServicio {
@@ -55,7 +82,11 @@ export interface AlertaServicio {
   descripcion: string;
   fechaHora: string;
   afectaRamal?: string;
+  severidad?: "amber" | "red" | "gray";
+  estado?: "activa" | "resuelta";
 }
+
+export type ServiceAlert = AlertaServicio;
 
 export interface EstimacionLlegada {
   lineaId: string;
@@ -67,3 +98,5 @@ export interface EstimacionLlegada {
   interno: string;
   ocupacion: "baja" | "media" | "alta";
 }
+
+export type Arrival = EstimacionLlegada;
