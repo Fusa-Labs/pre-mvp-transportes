@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
   title: "Transportes AMBA • Monitoreo en Vivo (Metropol)",
@@ -21,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className="h-full antialiased">
+    <html lang="es" className={cn("h-full antialiased", "font-sans", geist.variable)}>
       <body className="h-full w-full overflow-hidden bg-slate-900 text-slate-100 flex flex-col">
         {children}
       </body>

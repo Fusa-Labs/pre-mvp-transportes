@@ -1,0 +1,32 @@
+🏗️ Fases de Implementación
+
+Fase 1: Bootstrap & Tooling del Proyecto
+- Inicializar **Next.js 16** (App Router, TypeScript, ESLint) en el directorio raíz.
+- Configurar **Tailwind CSS v4** con tokens de diseño semánticos (paleta corporativa Metropol / AMBA: amarillo primario, grises profundos, acentos de estado).
+- Configurar **shadcn/ui** para componentes base accesibles 
+- Instalar dependencias clave: `lucide-react`, `motion` (Framer Motion), `maplibre-gl` (o `@maplibre/maplibre-gl-leaflet`).
+
+Fase 2: Capa de Dominio y Datos Mock (Data Layer)
+- [NEW] Interfaces de dominio (`Linea`, `Ramal`, `Parada`, `CoordenadaGPS`, `VehiculoEnVivo`, `AlertaServicio`).
+- [NEW] `Dataset de líneas representativas (ej. 65, 194, 90) con sus recorridos en GeoJSON y paradas georreferenciadas.
+- [NEW] Abstracción `DataService` con métodos `getLineas()`, `getRecorrido(lineaId)`, `getParadas(lineaId)`, `getLlegadas(paradaId)`.
+- [NEW]  Hook cliente que simula la posición de las unidades en tiempo real mediante interpolación sobre los recorridos.
+
+Fase 3: Núcleo de Mapas (Map Engine)
+- [NEW] `src/components/map/MapCanvas.tsx`: Renderizador de mapa vectorial con MapLibre GL JS cargado dinámicamente (`ssr: false`).
+- [NEW] `src/components/map/RoutePolyline.tsx`: Capa de renderizado de trazas de colectivos con colores oficiales por línea.
+- [NEW] `src/components/map/StopMarkers.tsx`: Marcadores visuales de paradas con click-to-focus.
+- [NEW] `src/components/map/LiveBusesLayer.tsx`: Marcadores reactivos de colectivos con rumbo (bearing) e indicador de línea.
+
+Fase 4: Interfaz de Usuario & Navegación Táctil (UI Shell)
+- [NEW] `src/components/ui-shell/FloatingSearch.tsx`: Barra de búsqueda superior tipo Google Maps para filtrar líneas y paradas.
+- [NEW] `src/components/ui-shell/BottomSheetPanel.tsx`: Panel deslizable inferior con 3 estados (colapsado, vista previa, expandido a pantalla completa) para:
+  - Ficha técnica de la línea seleccionada y frecuencias.
+  - Lista de paradas y tiempos estimados de llegada (ETA).
+  - Alertas de servicio (desvíos, cortes, demoras).
+- [NEW] `src/components/ui-shell/LineSelectorBar.tsx`: Filtro horizontal tipo chips para cambiar rápidamente entre líneas activas.
+
+Fase 5: Experiencia PWA y Ajustes de Performance
+- Configurar viewport móvil (`viewport-fit=cover`, safe-areas para iOS/Android).
+- Web Manifest (`manifest.json`) e iconos de app instalable.
+- Verificación de performance y navegación fluida a 60fps en dispositivos móviles.

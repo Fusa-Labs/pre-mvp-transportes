@@ -1,0 +1,537 @@
+# Scaffold Brief — Maqueta Interactiva de Transporte AMBA
+
+## 1. Objetivo
+
+Construir una maqueta interactiva de transporte público estilo Google Maps para validar rápidamente la experiencia con Product Owner y stakeholders.
+
+La primera versión es **Mock-First**: no depende de backend, APIs externas ni datos en tiempo real.
+
+El foco está en:
+
+* experiencia de usuario
+* navegación sobre mapa
+* consulta de líneas y recorridos
+* visualización de paradas
+* simulación local de colectivos
+* interacción táctil
+* calidad visual y rendimiento
+
+---
+
+## 2. Alcance de la maqueta
+
+La aplicación debe permitir:
+
+1. Visualizar un mapa a pantalla completa.
+2. Seleccionar una línea desde chips o buscador.
+3. Enfocar el mapa sobre el recorrido seleccionado.
+4. Dibujar el recorrido de la línea.
+5. Mostrar sus paradas principales.
+6. Mostrar colectivos simulados desplazándose sobre el recorrido.
+7. Consultar información básica de una línea.
+8. Abrir un panel inferior mediante interacción táctil.
+9. Simular posiciones GPS localmente sin backend.
+10. Mantener la aplicación funcional con datos mock locales.
+
+### Líneas iniciales
+
+Incluir como dataset inicial:
+
+* Línea 65
+* Línea 90
+* Línea 151
+
+Cada línea debe contar con:
+
+* identificador
+* nombre
+* ramales necesarios para la maqueta
+* recorrido en GeoJSON
+* paradas principales
+* coordenadas geográficas
+* información mínima para representación visual
+
+No se requiere cubrir inicialmente todos los ramales ni toda la información operativa real.
+
+---
+
+## 3. Stack
+
+| Capa            | Tecnología                |
+| --------------- | ------------------------- |
+| Framework       | Next.js 16.x              |
+| Arquitectura    | App Router                |
+| Rendering       | SSR/SSG donde corresponda |
+| UI              | React 19.x                |
+| Lenguaje        | TypeScript 5.x            |
+| Tipado          | `strict: true`            |
+| Estilos         | Tailwind CSS 4.x          |
+| Componentes     | shadcn/ui                 |
+| Iconos          | lucide-react              |
+| Animaciones     | Motion                    |
+| Mapa            | MapLibre GL               |
+| Package manager | pnpm                      |
+
+### Reglas técnicas
+
+* Usar exclusivamente **Next.js App Router**.
+* No utilizar Pages Router.
+* Leer `node_modules/next/dist/docs/` antes de implementar decisiones específicas de Next.js.
+* TypeScript strict.
+* `noEmit: true`.
+* Alias `@/*` → `./src/*`.
+* Prohibido `any`.
+* Para valores desconocidos utilizar `unknown` y type guards.
+* Mantener separación clara entre Server Components y Client Components.
+* Las APIs del navegador (`window`, `document`, WebGL, etc.) solo deben ejecutarse del lado cliente.
+* Respetar Conventional Commits.
+
+---
+
+## 4. Arquitectura
+
+La arquitectura debe ser **Mock-First y desacoplada de la fuente de datos**.
+
+```text
+UI
+ │
+ ├── Search
+ ├── Line Selector
+ ├── Bottom Sheet
+ └── Map
+      │
+      ▼
+Application / Hooks
+ │
+ ├── Selected Line
+ ├── Simulated GPS
+ └── Map Interaction
+      │
+      ▼
+Domain
+ │
+ ├── Line
+ ├── Route
+ ├── Stop
+ ├── Vehicle
+ └── Service Alert
+      │
+      ▼
+Data Layer
+ │
+ └── Mock Data
+```
+
+La UI no debe depender directamente de estructuras específicas del mock.
+
+El objetivo es poder reemplazar posteriormente el mock por una API real sin rediseñar la interfaz.
+
+---
+
+## 5. Modelo de dominio
+
+Definir contratos TypeScript para las entidades principales:
+
+* `Line`
+* `Route`
+* `Stop`
+* `Vehicle`
+* `GpsCoordinate`
+* `ServiceAlert`
+
+Los modelos deben representar únicamente información necesaria para esta maqueta.
+
+Evitar sobre-modelar el dominio.
+
+---
+
+## 6. Data Layer
+
+Crear una capa de datos local que exponga operaciones como:
+
+```text
+getLines()
+getLine(id)
+getRoute(lineId)
+getStops(lineId)
+getVehicles(lineId)
+getServiceAlerts(lineId)
+```
+
+Los datos deben vivir localmente dentro del proyecto.
+
+La aplicación no debe requerir:
+
+* backend
+* base de datos
+* autenticación
+* API externa
+* WebSocket
+* servicio GPS real
+
+---
+
+## 7. Simulador GPS
+
+Implementar un simulador local de colectivos.
+
+El simulador debe:
+
+1. recibir un recorrido como polilínea;
+2. seleccionar una posición inicial;
+3. avanzar progresivamente sobre el recorrido;
+4. actualizar posición y rumbo;
+5. repetir el recorrido o reiniciar al llegar al final;
+6. permitir representar varios vehículos.
+
+La simulación debe ejecutarse exclusivamente en cliente.
+
+Debe evitar actualizaciones innecesarias y mantener un consumo razonable de CPU/GPU.
+
+La simulación no necesita representar tráfico real ni tiempos reales.
+
+---
+
+## 8. Map Engine
+
+Implementar el mapa utilizando MapLibre GL.
+
+El mapa debe ser un componente cliente.
+
+Responsabilidades:
+
+* inicializar MapLibre;
+* mostrar el mapa base;
+* centrar el mapa;
+* hacer fit bounds sobre un recorrido;
+* dibujar polilíneas;
+* mostrar paradas;
+* mostrar vehículos simulados;
+* actualizar posiciones sin reconstruir innecesariamente el mapa.
+
+Separar conceptualmente:
+
+```text
+MapCanvas
+RouteLayer
+StopLayer
+VehicleLayer
+```
+
+Evitar mezclar lógica de dominio con lógica específica de MapLibre.
+
+---
+
+## 9. UI Shell
+
+### Floating Search
+
+Buscador flotante sobre el mapa.
+
+Debe permitir buscar:
+
+* líneas
+* paradas
+
+La primera versión puede resolver la búsqueda únicamente contra los datos mock.
+
+---
+
+### Line Selector
+
+Selector horizontal de líneas mediante chips.
+
+Ejemplo:
+
+```text
+[ Todas ] [ 65 ] [ 90 ] [ 151 ]
+```
+
+Al seleccionar una línea:
+
+* actualizar la línea activa;
+* enfocar el mapa;
+* mostrar su recorrido;
+* mostrar sus paradas;
+* actualizar el contenido del panel inferior.
+
+---
+
+### Bottom Sheet
+
+Panel inferior móvil con interacción mediante drag.
+
+Estados conceptuales:
+
+```text
+collapsed
+     ↓
+peek
+     ↓
+expanded
+```
+
+Debe utilizar Motion para las transiciones.
+
+Contenido inicial:
+
+* línea seleccionada;
+* recorrido;
+* paradas;
+* información básica;
+* vehículos simulados;
+* información de servicio mock.
+
+No implementar todavía lógica compleja de ETA real.
+
+---
+
+## 10. Diseño visual
+
+La interfaz debe priorizar una experiencia:
+
+* mobile-first
+* limpia
+* rápida
+* visual
+* orientada al mapa
+
+Elementos principales:
+
+```text
+┌─────────────────────────────┐
+│       Buscador flotante     │
+│                             │
+│                             │
+│          MAPA               │
+│                             │
+│     ●───●────●              │
+│       🚌                     │
+│                             │
+│                             │
+├─────────────────────────────┤
+│ 65   90   151               │
+├─────────────────────────────┤
+│ Línea 65                    │
+│ Próximas paradas            │
+│                             │
+│       Bottom Sheet          │
+└─────────────────────────────┘
+```
+
+Utilizar shadcn/ui como base de componentes y Motion para las interacciones.
+
+No construir una UI administrativa tradicional. El mapa debe ser el elemento dominante de la experiencia.
+
+---
+
+## 11. Estructura sugerida
+
+```text
+src/
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   └── globals.css
+│
+├── components/
+│   ├── map/
+│   │   ├── MapCanvas.tsx
+│   │   ├── RouteLayer.tsx
+│   │   ├── StopLayer.tsx
+│   │   └── VehicleLayer.tsx
+│   │
+│   ├── transport/
+│   │   ├── LineSelector.tsx
+│   │   ├── LineDetails.tsx
+│   │   └── StopList.tsx
+│   │
+│   └── ui-shell/
+│       ├── FloatingSearch.tsx
+│       └── BottomSheet.tsx
+│
+├── data/
+│   ├── lines.ts
+│   ├── routes.ts
+│   ├── stops.ts
+│   └── vehicles.ts
+│
+├── domain/
+│   ├── line.ts
+│   ├── route.ts
+│   ├── stop.ts
+│   └── vehicle.ts
+│
+├── services/
+│   └── transport-data.ts
+│
+├── hooks/
+│   ├── useSimulatedVehicles.ts
+│   └── useTransportSelection.ts
+│
+└── lib/
+    └── ...
+```
+
+La estructura puede ajustarse durante la implementación si existe una razón técnica clara. No crear abstracciones únicamente por anticipación.
+
+---
+
+## 12. Responsive / Mobile
+
+La experiencia debe diseñarse primero para móvil.
+
+Considerar:
+
+* safe areas
+* `viewport-fit=cover`
+* touch targets adecuados
+* gestos de drag
+* bottom sheet
+* controles flotantes
+* orientación vertical
+* adaptación a desktop sin romper la experiencia móvil
+
+---
+
+## 13. Performance
+
+El mapa debe mantenerse fluido.
+
+Evitar:
+
+* renders React innecesarios;
+* recreación de capas del mapa;
+* reconstrucción completa de GeoJSON en cada actualización GPS;
+* timers independientes por vehículo;
+* actualizaciones excesivamente frecuentes;
+* lógica pesada dentro del render.
+
+El simulador debe centralizar las actualizaciones cuando sea posible.
+
+---
+
+## 14. SSR / Client Boundaries
+
+No acceder a APIs del navegador durante SSR.
+
+Especial atención a:
+
+```text
+window
+document
+navigator
+WebGL
+MapLibre
+```
+
+Los componentes que dependan de MapLibre deben ejecutarse únicamente en cliente.
+
+La aplicación debe iniciar sin errores de hidratación.
+
+---
+
+## 15. Fuera de alcance
+
+No implementar en esta fase:
+
+* backend;
+* base de datos;
+* autenticación;
+* usuarios;
+* API real de transporte;
+* GPS real;
+* WebSockets;
+* tracking real;
+* ETA real;
+* pagos;
+* favoritos persistentes;
+* notificaciones push;
+* administración;
+* sistema de operadores;
+* analytics;
+* infraestructura productiva.
+
+La maqueta debe demostrar primero la experiencia principal.
+
+---
+
+## 16. Criterios de aceptación
+
+### Mapa
+
+* [ ] El mapa carga correctamente.
+* [ ] No existen errores de hidratación.
+* [ ] No existen errores `window is not defined`.
+* [ ] El mapa ocupa correctamente el viewport.
+* [ ] El recorrido puede visualizarse.
+
+### Líneas
+
+* [ ] Las líneas 65, 90 y 151 están disponibles.
+* [ ] El selector permite cambiar de línea.
+* [ ] El buscador permite encontrar líneas.
+* [ ] Al seleccionar una línea, el mapa enfoca su recorrido.
+
+### Paradas
+
+* [ ] Las paradas principales aparecen sobre el recorrido.
+* [ ] Las paradas pertenecen a la línea seleccionada.
+* [ ] La selección de una línea actualiza las paradas visibles.
+
+### Simulación
+
+* [ ] Los vehículos aparecen sobre el recorrido.
+* [ ] Los vehículos avanzan progresivamente.
+* [ ] La posición permanece sobre la polilínea.
+* [ ] La simulación no requiere backend.
+* [ ] La actualización no genera carga innecesaria.
+
+### Bottom Sheet
+
+* [ ] El panel puede colapsarse.
+* [ ] El panel puede expandirse.
+* [ ] El drag funciona correctamente en móvil.
+* [ ] Las transiciones son suaves.
+
+### Código
+
+* [ ] TypeScript strict.
+* [ ] No existe `any`.
+* [ ] Los datos están desacoplados de la UI.
+* [ ] Los componentes cliente están claramente delimitados.
+* [ ] Se utiliza pnpm.
+* [ ] Los commits siguen Conventional Commits.
+
+---
+
+## 17. Entregable
+
+El resultado esperado es una **maqueta interactiva funcional**, no una plataforma de transporte completa.
+
+La prioridad de implementación es:
+
+```text
+1. Scaffold
+2. Mapa
+3. Dataset mock
+4. Selección de líneas
+5. Recorridos
+6. Paradas
+7. Simulador GPS
+8. Bottom Sheet
+9. Buscador
+10. Pulido visual + performance
+```
+
+La arquitectura debe permitir evolucionar posteriormente desde:
+
+```text
+Mock Data
+    ↓
+API
+    ↓
+Realtime Transport Data
+```
+
+sin tener que rehacer la capa de presentación.
