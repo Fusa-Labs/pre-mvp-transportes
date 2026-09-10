@@ -96,7 +96,7 @@ export function busTopDownSvg(color: string): string {
  * por el centro): cuerpo x 13..165 (centro 89 = 178/2), contenido y
  * 2..88 (centro 45 = 90/2).
  */
-export function busIsoSvg(color: string, steer: -1 | 0 | 1 = 0): string {
+export function busIsoSvg(color: string, steer: -1 | 0 | 1 = 0, flip = false): string {
   const front = '#D6DAE0';
   const roof = '#DCDEE2';
   const ribs = '#B8BCC3';
@@ -133,27 +133,32 @@ export function busIsoSvg(color: string, steer: -1 | 0 | 1 = 0): string {
   const lineStripe = sq(15, 119.5, 20.5, 25.5);
   const frontStripe = quad([fp(0.08, 19.4), fp(0.78, 19.4), fp(0.78, 20.4), fp(0.08, 20.4)]);
 
-  // Rig del eje delantero
-  const flX = 96 + steer * 1.6;
-  const flRot = -13 + steer * 11;
-  const frX = 137 + steer * 1;
-  const frRot = 16 + steer * 9;
+  // Rig del eje delantero: al estar espejado, invertimos el signo del steer
+  const effectiveSteer = flip ? ((steer === 0 ? 0 : -steer) as -1 | 0 | 1) : steer;
+  const flX = 96 + effectiveSteer * 1.6;
+  const flRot = -13 + effectiveSteer * 11;
+  const frX = 137 + effectiveSteer * 1;
+  const frRot = 16 + effectiveSteer * 9;
+
+  const bodyGradId = flip ? 'iso-body-flip' : 'iso-body';
+  const glassGradId = flip ? 'iso-glass-flip' : 'iso-glass';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 178 90" width="178" height="90">
     <defs>
-      <linearGradient id="iso-body" x1="0" y1="0" x2="0" y2="1">
+      <linearGradient id="${bodyGradId}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="#F4F5F7"/>
         <stop offset=".38" stop-color="#E2E4E8"/>
         <stop offset="1" stop-color="#C6CAD1"/>
       </linearGradient>
-      <linearGradient id="iso-glass" x1="0" y1="0" x2="0" y2="1">
+      <linearGradient id="${glassGradId}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="#343A42"/>
         <stop offset=".45" stop-color="#1C2127"/>
         <stop offset="1" stop-color="#0C1015"/>
       </linearGradient>
     </defs>
+    <g ${flip ? 'transform="translate(178, 0) scale(-1, 1)"' : ''}>
     <path d="M13 24 55 2 165 29 121 51Z" fill="${roof}" stroke="#0D1420" stroke-width="1.3" stroke-linejoin="round"/>
-    <path d="M13 24 121 51 121 85 13 58Z" fill="url(#iso-body)" stroke="#0D1420" stroke-width="1.3" stroke-linejoin="round"/>
+    <path d="M13 24 121 51 121 85 13 58Z" fill="url(#${bodyGradId})" stroke="#0D1420" stroke-width="1.3" stroke-linejoin="round"/>
     <path d="M121 51 165 29 165 63 121 85Z" fill="${front}" stroke="#0D1420" stroke-width="1.3" stroke-linejoin="round"/>
     <path d="M32.9 19.7 127.9 43.5M43.4 14.5 138.4 38.2M54 9.2 149 32.9" stroke="${ribs}" stroke-opacity=".3" stroke-width="1"/>
     <path d="M121 51 165 29" stroke="#FFFFFF" stroke-opacity=".4" stroke-width="1.2"/>
@@ -161,14 +166,14 @@ export function busIsoSvg(color: string, steer: -1 | 0 | 1 = 0): string {
     <path d="M55 2 165 29" stroke="#FFFFFF" stroke-opacity=".18" stroke-width="1"/>
     <path d="M14 52.25 120 78.75 120 84.75 14 58.25Z" fill="#0A0E16"/>
     <path d="M14.6 52.35 119.4 78.85" stroke="#FFFFFF" stroke-opacity=".16" stroke-width=".8"/>
-    <path d="M${glassBand.slice(1)}" fill="url(#iso-glass)" stroke="#0D1420" stroke-width="1"/>
+    <path d="M${glassBand.slice(1)}" fill="url(#${glassGradId})" stroke="#0D1420" stroke-width="1"/>
     <path d="M33 ${Math.round((syTop(33) + 5.5) * 10) / 10}V${Math.round((syTop(33) + 19) * 10) / 10}M48 ${Math.round((syTop(48) + 5.5) * 10) / 10}V${Math.round((syTop(48) + 19) * 10) / 10}M63 ${Math.round((syTop(63) + 5.5) * 10) / 10}V${Math.round((syTop(63) + 19) * 10) / 10}M79 ${Math.round((syTop(79) + 5.5) * 10) / 10}V${Math.round((syTop(79) + 19) * 10) / 10}" stroke="#0D1420" stroke-opacity=".55" stroke-width="1.1"/>
     <path d="M24 ${Math.round((syTop(24) + 18) * 10) / 10}L44 ${Math.round((syTop(44) + 9.5) * 10) / 10}" stroke="#D7DCE2" stroke-opacity=".32" stroke-width="1.3" stroke-linecap="round"/>
     <path d="M${doorPatch.slice(1)}" fill="${doorFill}" stroke="#0D1420" stroke-opacity=".6" stroke-width="1"/>
     <path d="M${lineStripe.slice(1)}" fill="${color}"/>
-    <path d="M${doorGlass.slice(1)}" fill="url(#iso-glass)" stroke="#0D1420" stroke-opacity=".7" stroke-width=".9"/>
+    <path d="M${doorGlass.slice(1)}" fill="url(#${glassGradId})" stroke="#0D1420" stroke-opacity=".7" stroke-width=".9"/>
     <path d="M${cartel.slice(1)}" fill="#F7C84B" stroke="#C89A2A" stroke-width=".8"/>
-    <path d="M${windshield.slice(1)}" fill="url(#iso-glass)" stroke="#0D1420" stroke-width="1"/>
+    <path d="M${windshield.slice(1)}" fill="url(#${glassGradId})" stroke="#0D1420" stroke-width="1"/>
     <path d="M${frontStripe.slice(1)}" fill="${color}"/>
     <path d="M${pillarTop[0]} ${pillarTop[1]}L${pillarBottom[0]} ${pillarBottom[1]}" stroke="#060A12" stroke-opacity=".8" stroke-width="2"/>
     <path d="M${streakF1[0]} ${streakF1[1]}L${streakF2[0]} ${streakF2[1]}" stroke="#D7DCE2" stroke-opacity=".4" stroke-width="1.2" stroke-linecap="round"/>
@@ -193,6 +198,7 @@ export function busIsoSvg(color: string, steer: -1 | 0 | 1 = 0): string {
     <ellipse cx="${flX}" cy="78.8" rx="3.5" ry="5.6" fill="#1E2836" transform="rotate(${flRot} ${flX} 78.8)"/>
     <ellipse cx="${frX}" cy="77" rx="5" ry="7" fill="#0D1420" opacity=".85" transform="rotate(${frRot} ${frX} 77)"/>
     <ellipse cx="${frX}" cy="77" rx="2.7" ry="4" fill="#1E2836" opacity=".85" transform="rotate(${frRot} ${frX} 77)"/>
+    </g>
   </svg>`;
 }
 

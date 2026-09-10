@@ -42,7 +42,7 @@ import {
   busTopDownSvg,
   lightenHex,
 } from '@/lib/map/vehicle-sprites';
-import { isoBillboardRotation, shadowRotation } from '@/lib/map/vehicle-billboard';
+import { isIsoFlipped, isoBillboardRotation, shadowRotation } from '@/lib/map/vehicle-billboard';
 import { headingDelta, nextSteerBucket, smoothSteerRate } from '@/lib/map/vehicle-steer';
 import { MOCK_ROUTES, MOCK_LINES, MOCK_STOPS } from '@/mock/data';
 import {
@@ -531,6 +531,12 @@ export function MapCanvas({
         const m = metaMap.get(key);
         if (!m) continue;
         const dirSuffix = m.direction ? `-${m.direction}` : '';
+        const steer = steerBucketMap.get(key) ?? 0;
+        const flipped = isIsoFlipped(pos.heading, camBearing);
+        const prefix = flipped ? 'isoFlip' : 'iso';
+        const steerSuffix = steer === -1 ? 'L' : steer === 1 ? 'R' : '';
+        const isoIcon = `${prefix}${steerSuffix}-${m.lineId}${dirSuffix}`;
+
         features.push({
           type: 'Feature' as const,
           geometry: { type: 'Point' as const, coordinates: [pos.lng, pos.lat] as [number, number] },
@@ -538,14 +544,12 @@ export function MapCanvas({
             badge: `badge-${m.lineId}${dirSuffix}`,
             headingIcon: `heading-${m.lineId}${dirSuffix}`,
             topDown: `top-${m.lineId}${dirSuffix}`,
-            iso: `iso-${m.lineId}${dirSuffix}`,
-            isoL: `isoL-${m.lineId}${dirSuffix}`,
-            isoR: `isoR-${m.lineId}${dirSuffix}`,
+            iso: isoIcon,
             colorLight: m.direction === 'vuelta' ? '#FCA5A5' : m.direction === 'ida' ? '#7DD3FC' : (LINE_COLOR_LIGHT[m.lineId] ?? '#67E8F9'),
             heading: Math.round(pos.heading),
             isoRotate: isoBillboardRotation(pos.heading, camBearing),
             shadowRotate: shadowRotation(pos.heading),
-            steer: steerBucketMap.get(key) ?? 0,
+            steer,
             shortName: LINE_SHORT[m.lineId] ?? m.lineId,
             lineId: m.lineId,
             unitId: m.unitId,
@@ -1643,6 +1647,15 @@ export function MapCanvas({
           { id: `isoR-${line.id}`, svg: busIsoSvg(line.color, 1), w: ISO_W, h: ISO_H },
           { id: `isoR-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 1), w: ISO_W, h: ISO_H },
           { id: `isoR-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 1), w: ISO_W, h: ISO_H },
+          { id: `isoFlip-${line.id}`, svg: busIsoSvg(line.color, 0, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlip-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 0, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlip-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 0, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipL-${line.id}`, svg: busIsoSvg(line.color, -1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipL-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', -1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipL-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', -1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipR-${line.id}`, svg: busIsoSvg(line.color, 1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipR-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipR-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 1, true), w: ISO_W, h: ISO_H },
         ]),
         { id: 'shadow-blob', svg: busShadowSvg(), w: 96, h: 96 },
       ];
@@ -1787,13 +1800,7 @@ export function MapCanvas({
           source: 'vehicles',
           minzoom: 14.4,
           layout: {
-            'icon-image': [
-              'match',
-              ['get', 'steer'],
-              -1, ['get', 'isoL'],
-              1, ['get', 'isoR'],
-              ['get', 'iso'],
-            ],
+            'icon-image': ['get', 'iso'],
             'icon-rotate': ['get', 'isoRotate'],
             'icon-rotation-alignment': 'viewport',
             'icon-pitch-alignment': 'viewport',
