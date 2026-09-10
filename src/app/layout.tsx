@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { ThemeProvider, THEME_STORAGE_KEY } from "@/components/theme/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "Transportes AMBA • Monitoreo en Vivo (Metropol)",
@@ -27,8 +28,24 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#09090b",
+  themeColor: "#020617",
 };
+
+const themeInitScript = `
+  (function() {
+    try {
+      var key = '${THEME_STORAGE_KEY}';
+      var stored = localStorage.getItem(key);
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var isDark = stored === 'dark' || (!stored && prefersDark) || (stored === 'system' && prefersDark);
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (e) {}
+  })();
+`;
 
 export default function RootLayout({
   children,
@@ -36,9 +53,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className="h-full antialiased dark">
-      <body className="h-full w-full overflow-hidden bg-slate-950 text-slate-100 overscroll-none select-none">
-        {children}
+    <html lang="es" suppressHydrationWarning className="h-full antialiased dark">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body className="h-full w-full overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overscroll-none select-none transition-colors duration-200">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

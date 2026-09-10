@@ -380,7 +380,7 @@ export function MapCanvas({
 
     const map = new maplibregl.Map({
       container: el,
-      style: BASEMAP_LIGHT,
+      style: themeRef.current === 'dark' ? BASEMAP_DARK : BASEMAP_LIGHT,
       center,
       zoom: 10.8, // entrada cinematográfica: fitBounds hace zoom-in al AMBA
       attributionControl: { compact: true },

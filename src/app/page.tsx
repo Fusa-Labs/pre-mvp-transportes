@@ -13,6 +13,8 @@ import type { VehiclePosition } from "@/lib/data-service";
 import type { CameraMode } from "@/lib/map/camera-controller";
 import { Parada } from "@/types/transport";
 import { Navigation, RotateCcw, Bus, Eye } from "lucide-react";
+import { useTheme } from "@/components/theme/ThemeProvider";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 const ALL_LINE_IDS = MOCK_LINES.map((l) => l.id);
 
@@ -25,12 +27,13 @@ const ALL_LINE_IDS = MOCK_LINES.map((l) => l.id);
  * - Safe areas para notch y home bar en dispositivos móviles (100dvh).
  */
 export default function TransportesAppPage() {
+  const { resolvedTheme } = useTheme();
   const lineas = useMemo(() => TransportService.getLineas(), []);
   const paradas = useMemo(() => TransportService.getParadas(), []);
   const alertas = useMemo(() => TransportService.getAlertas(), []);
 
   const [positions, setPositions] = useState<VehiclePosition[]>([]);
-  const [selectedLineaId, setSelectedLineaId] = useState<string | null>(null);
+  const [selectedLineaId, setSelectedLineaId] = useState<string | null>("line-200");
   const [selectedParada, setSelectedParada] = useState<Parada | null>(paradas[0] || null);
   const [selectedVehiculo, setSelectedVehiculo] = useState<VehiclePosition | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
@@ -113,14 +116,14 @@ export default function TransportesAppPage() {
   }, []);
 
   const handleResetCamera = useCallback(() => {
-    setSelectedLineaId(null);
+    setSelectedLineaId("line-200");
     setSelectedVehiculo(null);
     setCameraMode("overview");
     if (paradas[0]) setSelectedParada(paradas[0]);
   }, [paradas]);
 
   return (
-    <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-slate-950 touch-manipulation">
+    <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-slate-100 dark:bg-slate-950 touch-manipulation">
       {/* 1. Header Flotante Superior: Safe-Area-Top (Notch / Dynamic Island) */}
       <div className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col gap-2">
         <FloatingSearch
@@ -147,14 +150,16 @@ export default function TransportesAppPage() {
           cameraMode={cameraMode}
           onCameraModeChange={setCameraMode}
           cameraBottomPadding={140}
-          center={[-58.3816, -34.6037]}
-          theme="light"
+          center={[-58.3805, -34.6080]}
+          theme={resolvedTheme}
           className="w-full h-full"
         />
       </div>
 
       {/* 3. Controles Flotantes en el Mapa con Touch Targets de 44px */}
       <div className="absolute right-4 top-[calc(max(14px,env(safe-area-inset-top))+124px)] z-20 flex flex-col gap-2 pointer-events-auto">
+        <ThemeToggle />
+
         <button
           onClick={handleResetCamera}
           title="Centrar en AMBA"

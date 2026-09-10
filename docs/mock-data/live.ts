@@ -1,8 +1,10 @@
 /**
- * Motor de GPS Simulado — Colectivos AMBA
+ * Motor de GPS Simulado — Colectivos AMBA (Maqueta Fase 1)
  *
- * Técnicas de las apps reales (Moovit / Transit / Google Maps):
+ * Técnicas de las apps reales (Moovit / transit.app / Google Maps):
  * - Los vehículos SIEMPRE viajan sobre la polilínea de su ruta
+ *   (posición por distancia recorrida, sin ruido aleatorio — el ruido
+ *   GPS se filtra del lado del feed, como haría un Kalman real).
  * - Emite a 1 Hz (frecuencia de feed GTFS-RT); el suavizado a 60fps
  *   lo hace el cliente (MapCanvas interpola entre ticks / dead-reckoning).
  * - Heading = rumbo hacia un punto ADELANTE del vehículo (no el del
@@ -15,6 +17,8 @@ import { MOCK_ROUTES, MOCK_UNITS } from './data';
 // ─── Configuración ─────────────────────────────────────────
 
 const TICK_INTERVAL_MS = 1000;
+// Velocidades "paseo" para la maqueta: el objetivo es PODER MIRAR el
+// colectivo 3D y su recorrido, no simular tránsito porteño real.
 const SPEED_BASE_KMH = 11;
 const SPEED_VARIANCE_KMH = 7;
 const DELAYED_UNIT_SPEED_KMH = 5;
@@ -26,7 +30,7 @@ function distanceMeters(a: [number, number], b: [number, number]): number {
   const [lng1, lat1] = a;
   const [lng2, lat2] = b;
   const dLat = (lat2 - lat1) * 111320;
-  const dLng = (lng2 - lng1) * 111320 * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180);
+  const dLng = (lng2 - lng1) * 111320 * Math.cos(((lat1 + lat2) / 2 * Math.PI) / 180);
   return Math.sqrt(dLat * dLat + dLng * dLng);
 }
 
@@ -56,11 +60,9 @@ function buildRouteCache(route: [number, number][]): RouteCache {
   const cumLength: number[] = [0];
   let total = 0;
 
-  // Calculamos los segmentos contiguos reales de la polilínea (N-1 segmentos para N puntos).
-  // Nunca conectamos el último punto con el primero si la ruta es lineal, evitando
-  // el bug del salto diagonal atravesando la ciudad.
-  for (let i = 0; i < route.length - 1; i++) {
-    total += distanceMeters(route[i], route[i + 1]);
+  for (let i = 0; i < route.length; i++) {
+    const next = (i + 1) % route.length;
+    total += distanceMeters(route[i], route[next]);
     cumLength.push(total);
   }
 
@@ -72,31 +74,29 @@ function positionAtDistance(
   dist: number,
 ): { lng: number; lat: number } {
   const { points, cumLength, totalLength } = cache;
-  if (totalLength <= 0 || points.length === 0) {
-    return { lng: -58.3816, lat: -34.6037 };
-  }
   const d = ((dist % totalLength) + totalLength) % totalLength;
 
   let segIdx = 0;
-  for (let i = 0; i < cumLength.length - 1; i++) {
+  for (let i = 0; i < points.length; i++) {
     if (d >= cumLength[i] && d < cumLength[i + 1]) {
       segIdx = i;
       break;
     }
   }
 
-  const segStart = cumLength[segIdx] ?? 0;
-  const segLen = (cumLength[segIdx + 1] ?? segStart) - segStart;
+  const segStart = cumLength[segIdx];
+  const segLen = cumLength[segIdx + 1] - segStart;
   const t = segLen > 0 ? (d - segStart) / segLen : 0;
 
-  const from = points[segIdx] ?? points[0]!;
-  const to = points[segIdx + 1] ?? from;
+  const from = points[segIdx];
+  const to = points[(segIdx + 1) % points.length];
 
   return { lng: lerp(from[0], to[0], t), lat: lerp(from[1], to[1], t) };
 }
 
 /**
  * Heading suave: rumbo hacia un punto ~12m adelante en la ruta.
+ * Al promediar el tramo que atraviesa una curva, el giro es continuo.
  */
 function headingAtDistance(cache: RouteCache, dist: number): number {
   const from = positionAtDistance(cache, dist);
@@ -125,10 +125,9 @@ function createVehicle(
   unitId: string,
   routeCache: RouteCache,
   speedOverride?: number,
-  distOverride?: number,
 ): VehicleState {
-  const speed = speedOverride ?? SPEED_BASE_KMH + (Math.random() * 2 - 1);
-  const startDist = distOverride ?? Math.random() * (routeCache.totalLength || 1000);
+  const speed = speedOverride ?? SPEED_BASE_KMH + Math.random() * SPEED_VARIANCE_KMH;
+  const startDist = Math.random() * routeCache.totalLength;
   const pos = positionAtDistance(routeCache, startDist);
   const heading = headingAtDistance(routeCache, startDist);
 
@@ -176,24 +175,21 @@ function initializeVehicles(): void {
 
   for (const [lineId, unitIds] of Object.entries(MOCK_UNITS)) {
     const route = MOCK_ROUTES[lineId];
-    if (!route || route.length < 2) continue;
+    if (!route) continue;
 
     const routeCache = buildRouteCache(route);
-    const count = unitIds.length;
 
-    unitIds.forEach((unitId, idx) => {
+    for (const unitId of unitIds) {
       const isDelayed = unitId === '1234' && lineId === 'line-210';
       const speed = isDelayed ? DELAYED_UNIT_SPEED_KMH : undefined;
-      // Espaciado equitativo a lo largo de la traza para cadencia real
-      const spacedDist = (idx / Math.max(1, count)) * routeCache.totalLength;
-      vehicles.push(createVehicle(lineId, unitId, routeCache, speed, spacedDist));
-    });
+      vehicles.push(createVehicle(lineId, unitId, routeCache, speed));
+    }
   }
 }
 
 function tick(): void {
   for (let i = 0; i < vehicles.length; i++) {
-    vehicles[i] = advanceVehicle(vehicles[i]!);
+    vehicles[i] = advanceVehicle(vehicles[i]);
   }
 
   const positions: VehiclePosition[] = vehicles.map((v) => ({
@@ -222,7 +218,7 @@ export function subscribeToPositions(
   if (subscribers.length === 0) {
     initializeVehicles();
     tickIntervalId = setInterval(tick, TICK_INTERVAL_MS);
-    // Primer tick inmediato
+    // Primer tick inmediato para no esperar 1s en pantalla vacía
     tick();
   }
 
@@ -235,14 +231,14 @@ export function subscribeToPositions(
   return () => {
     subscribers = subscribers.filter((s) => s !== filteredCb);
     if (subscribers.length === 0) {
-      if (tickIntervalId) {
-        clearInterval(tickIntervalId);
-        tickIntervalId = null;
-      }
+      if (tickIntervalId) { clearInterval(tickIntervalId); tickIntervalId = null; }
     }
   };
 }
 
+/**
+ * Obtener posiciones actuales (para uso en tests o inicialización)
+ */
 export function getCurrentPositions(): VehiclePosition[] {
   return vehicles.map((v) => ({
     lineId: v.lineId,
