@@ -176,7 +176,7 @@ export default function TransportesAppPage() {
       </div>
 
       {/* 3. Controles Flotantes en el Mapa con Touch Targets de 44px */}
-      <div className="absolute right-4 top-[calc(max(14px,env(safe-area-inset-top))+124px)] z-20 flex flex-col gap-2 pointer-events-auto">
+      <div className="absolute right-4 top-[calc(max(14px,env(safe-area-inset-top))+188px)] z-20 flex flex-col gap-2 pointer-events-auto">
         <ThemeToggle />
 
         <button

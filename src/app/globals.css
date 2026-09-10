@@ -178,6 +178,57 @@ html, body {
   padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 
+/* Posicionamiento y estilo de controles nativos MapLibre GL acorde a DESIGN.MD */
+.maplibregl-ctrl-top-right {
+  top: calc(max(14px, env(safe-area-inset-top)) + 58px) !important;
+  right: 16px !important;
+  margin: 0 !important;
+  z-index: 20 !important;
+}
+
+.maplibregl-ctrl-group {
+  background-color: var(--canvas) !important;
+  border: 1px solid var(--hairline) !important;
+  border-radius: 9999px !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.maplibregl-ctrl-group button {
+  width: 40px !important;
+  height: 40px !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--hairline-soft) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background-color 0.15s ease, transform 0.1s ease !important;
+}
+
+.maplibregl-ctrl-group button:last-child {
+  border-bottom: none !important;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background-color: var(--canvas-soft) !important;
+}
+
+.maplibregl-ctrl-group button:active {
+  transform: scale(0.95) !important;
+}
+
+/* Iconos de MapLibre en modo claro y oscuro */
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  opacity: 0.85;
+}
+
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(1.6) !important;
+}
+
 @layer base {
   * {
     border-color: var(--border);
