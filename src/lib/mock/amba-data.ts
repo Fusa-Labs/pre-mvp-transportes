@@ -34,6 +34,10 @@ export const PARADAS_MOCK: Parada[] = [
     lat: -34.603304,
     lng: -58.38195,
     lineasIds: ["line-200"],
+    conexiones: {
+      subte: ["B", "C", "D"],
+      metrobus: true,
+    },
   },
   {
     id: "stop-002",
@@ -42,6 +46,9 @@ export const PARADAS_MOCK: Parada[] = [
     lat: -34.604846,
     lng: -58.379766,
     lineasIds: ["line-200"],
+    conexiones: {
+      subte: ["D"],
+    },
   },
   {
     id: "stop-001",
@@ -50,6 +57,9 @@ export const PARADAS_MOCK: Parada[] = [
     lat: -34.606098,
     lng: -58.381238,
     lineasIds: ["line-200"],
+    conexiones: {
+      subte: ["B"],
+    },
   },
   {
     id: "stop-005",
@@ -58,6 +68,9 @@ export const PARADAS_MOCK: Parada[] = [
     lat: -34.608872,
     lng: -58.378957,
     lineasIds: ["line-200"],
+    conexiones: {
+      subte: ["A"],
+    },
   },
   {
     id: "stop-004",
@@ -66,6 +79,10 @@ export const PARADAS_MOCK: Parada[] = [
     lat: -34.611846,
     lng: -58.380944,
     lineasIds: ["line-200"],
+    conexiones: {
+      subte: ["E"],
+      metrobus: true,
+    },
   },
   {
     id: "stop-007",
@@ -74,6 +91,10 @@ export const PARADAS_MOCK: Parada[] = [
     lat: -34.613119,
     lng: -58.381747,
     lineasIds: ["line-200"],
+    conexiones: {
+      subte: ["C", "E"],
+      metrobus: true,
+    },
   },
 ];
 

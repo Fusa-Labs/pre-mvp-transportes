@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence, PanInfo } from "motion/react";
 import {
   Clock,
@@ -18,6 +18,9 @@ import type { CameraMode } from "@/lib/map/camera-controller";
 import type { StopAlongRoute } from "@/lib/map/route-progress";
 import { RouteTimeline } from "@/components/map/RouteTimeline";
 import { Eye } from "lucide-react";
+import { computeLineStopStatuses } from "@/lib/services/stop-schedule-service";
+import { StopSequenceItem } from "@/components/ui-shell/StopSequenceItem";
+import { InlineBusIndicator } from "@/components/ui-shell/InlineBusIndicator";
 
 export type SheetState = "collapsed" | "peek" | "expanded";
 
@@ -35,12 +38,15 @@ interface BottomSheetPanelProps {
   onToggle3D?: () => void;
   timelineStops?: StopAlongRoute[];
   busProgress?: number;
+  positions?: VehiclePosition[];
+  userLocation?: { lat: number; lng: number } | null;
 }
 
 /**
- * Componente modular BottomSheetPanel (Fase 4 & 5).
+ * Componente modular BottomSheetPanel (Fase 3 & 4).
  * Panel táctil deslizable inferior con 3 estados conceptuales (collapsed, peek, expanded)
  * optimizado para ergonomía móvil, safe-areas (home bar) y touch targets de 44px+.
+ * Integra telemetría en tiempo real por parada, transbordos, micro-acordeón y colectivo en tránsito.
  */
 export default function BottomSheetPanel({
   selectedLinea,
@@ -56,6 +62,8 @@ export default function BottomSheetPanel({
   onToggle3D,
   timelineStops = [],
   busProgress = 0,
+  positions = [],
+  userLocation = null,
 }: BottomSheetPanelProps) {
   const [sheetState, setSheetState] = useState<SheetState>("peek");
   const [activeTab, setActiveTab] = useState<"llegadas" | "paradas" | "alertas">("llegadas");
@@ -67,6 +75,19 @@ export default function BottomSheetPanel({
   const alertasFiltradas = selectedLinea
     ? alertas.filter((a) => a.lineaId === selectedLinea.id)
     : alertas;
+
+  // Cálculo en tiempo real de estados de paradas, ETAs y unidades en tránsito (Fase 3)
+  const { statuses: stopStatuses, busesInTransit } = useMemo(() => {
+    if (!selectedLinea || paradasFiltradas.length === 0) {
+      return { statuses: [], busesInTransit: [] };
+    }
+    return computeLineStopStatuses(
+      selectedLinea.id,
+      paradasFiltradas,
+      positions,
+      userLocation,
+    );
+  }, [selectedLinea, paradasFiltradas, positions, userLocation]);
 
   // Alturas optimizadas con dvh y safe area
   const heightStyles: Record<SheetState, string> = {
@@ -350,20 +371,36 @@ export default function BottomSheetPanel({
 
                         <div className="text-right shrink-0">
                           <div className="flex items-baseline justify-end gap-1">
-                            <span
-                              className={`text-xl font-black ${
-                                llegada.minutos <= 3
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : llegada.minutos <= 7
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : "text-slate-700 dark:text-slate-300"
-                              }`}
-                            >
-                              {llegada.minutos}
-                            </span>
-                            <span className="text-[11px] font-bold text-slate-400">min</span>
+                            {llegada.displayStatus === "en-parada" || llegada.minutos <= 0 ? (
+                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                                En parada
+                              </span>
+                            ) : llegada.displayStatus === "arribando" || llegada.minutos <= 2 ? (
+                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                Arribando
+                              </span>
+                            ) : (
+                              <>
+                                <span
+                                  className={`text-xl font-black ${
+                                    llegada.minutos <= 3
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : llegada.minutos <= 7
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-slate-700 dark:text-slate-300"
+                                  }`}
+                                >
+                                  {llegada.minutos}
+                                </span>
+                                <span className="text-[11px] font-bold text-slate-400">min</span>
+                              </>
+                            )}
                           </div>
-                          <p className="text-[10px] text-slate-400 font-medium">a {llegada.distanciaMetros}m</p>
+                          <p className="text-[10px] text-slate-400 font-medium">
+                            {llegada.distanciaMetros <= 15 ? "En andén" : `a ${llegada.distanciaMetros}m`}
+                          </p>
                         </div>
                       </div>
                     ))
@@ -386,58 +423,94 @@ export default function BottomSheetPanel({
                     Secuencia de paradas ({paradasFiltradas.length})
                   </p>
                   <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                    Tocar para enfocar
+                    Tocar para enfocar y ver horarios
                   </span>
                 </div>
 
-                {paradasFiltradas.map((parada, idx) => {
-                  const isSelected = selectedParada?.id === parada.id;
-                  return (
-                    <div
-                      key={parada.id}
-                      onClick={() => onSelectParada(parada)}
-                      className={`min-h-[48px] flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all active:scale-[0.98] ${
-                        isSelected
-                          ? "bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700"
-                          : "hover:bg-slate-100 dark:hover:bg-zinc-800"
-                      }`}
-                    >
-                      <div className="flex flex-col items-center shrink-0">
-                        <div
-                          className={`w-3.5 h-3.5 rounded-full border-2 ${
-                            isSelected
-                              ? "bg-amber-500 border-white ring-2 ring-amber-500"
-                              : "bg-slate-400 dark:bg-zinc-600 border-white dark:border-zinc-900"
-                          }`}
-                        />
-                      </div>
+                {stopStatuses.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {stopStatuses.map((status, idx) => {
+                      const isSelected = selectedParada?.id === status.stop.id;
+                      const nextStatus = stopStatuses[idx + 1];
+                      const busesBetween = nextStatus
+                        ? busesInTransit.filter(
+                            (b) =>
+                              b.fromStop.id === status.stop.id &&
+                              b.toStop.id === nextStatus.stop.id
+                          )
+                        : [];
 
-                      <div className="flex-1 truncate">
-                        <p
-                          className={`text-xs font-bold truncate ${
-                            isSelected
-                              ? "text-amber-800 dark:text-amber-300"
-                              : "text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          {parada.nombre}
-                        </p>
-                        <p className="text-[11px] text-slate-500 truncate">{parada.direccion}</p>
-                      </div>
+                      return (
+                        <div key={status.stop.id}>
+                          <StopSequenceItem
+                            status={status}
+                            isSelected={isSelected}
+                            onSelect={() => onSelectParada(status.stop)}
+                            isFirst={idx === 0}
+                            isLast={idx === stopStatuses.length - 1}
+                          />
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        {parada.lineasIds.slice(0, 3).map((lId) => (
-                          <span
-                            key={lId}
-                            className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-zinc-700 text-[9px] font-bold text-slate-700 dark:text-slate-200"
+                          {busesBetween.map((bus) => (
+                            <InlineBusIndicator
+                              key={`bus-transit-${bus.unitId}-${idx}`}
+                              bus={bus}
+                              color={selectedLinea?.colorHex || "#1D4ED8"}
+                            />
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  paradasFiltradas.map((parada) => {
+                    const isSelected = selectedParada?.id === parada.id;
+                    return (
+                      <div
+                        key={parada.id}
+                        onClick={() => onSelectParada(parada)}
+                        className={`min-h-[48px] flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all active:scale-[0.98] ${
+                          isSelected
+                            ? "bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700"
+                            : "hover:bg-slate-100 dark:hover:bg-zinc-800"
+                        }`}
+                      >
+                        <div className="flex flex-col items-center shrink-0">
+                          <div
+                            className={`w-3.5 h-3.5 rounded-full border-2 ${
+                              isSelected
+                                ? "bg-amber-500 border-white ring-2 ring-amber-500"
+                                : "bg-slate-400 dark:bg-zinc-600 border-white dark:border-zinc-900"
+                            }`}
+                          />
+                        </div>
+
+                        <div className="flex-1 truncate">
+                          <p
+                            className={`text-xs font-bold truncate ${
+                              isSelected
+                                ? "text-amber-800 dark:text-amber-300"
+                                : "text-slate-800 dark:text-slate-200"
+                            }`}
                           >
-                            {lId.replace("linea-", "").replace("line-", "")}
-                          </span>
-                        ))}
+                            {parada.nombre}
+                          </p>
+                          <p className="text-[11px] text-slate-500 truncate">{parada.direccion}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {parada.lineasIds.slice(0, 3).map((lId) => (
+                            <span
+                              key={lId}
+                              className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-zinc-700 text-[9px] font-bold text-slate-700 dark:text-slate-200"
+                            >
+                              {lId.replace("linea-", "").replace("line-", "")}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </motion.div>
             )}
 

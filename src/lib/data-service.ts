@@ -11,6 +11,9 @@ export interface VehiclePosition {
   heading: number;
   speed: number;
   timestamp: number;
+  isDwelling?: boolean;
+  dwellRemainingSeconds?: number;
+  currentStopId?: string | null;
 }
 
 export interface Line {

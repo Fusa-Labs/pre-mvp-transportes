@@ -41,6 +41,11 @@ export interface Parada {
   lat: number;
   lng: number;
   lineasIds: string[];
+  conexiones?: {
+    subte?: string[];
+    metrobus?: boolean;
+    tren?: string[];
+  };
 }
 
 export type Stop = Parada;
@@ -97,6 +102,8 @@ export interface EstimacionLlegada {
   distanciaMetros: number;
   interno: string;
   ocupacion: "baja" | "media" | "alta";
+  displayStatus?: "en-parada" | "arribando" | "minutos";
+  displayLabel?: string;
 }
 
 export type Arrival = EstimacionLlegada;

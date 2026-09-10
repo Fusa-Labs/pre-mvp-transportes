@@ -33,6 +33,10 @@ export default function TransportesAppPage() {
   const alertas = useMemo(() => TransportService.getAlertas(), []);
 
   const [positions, setPositions] = useState<VehiclePosition[]>([]);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>({
+    lat: -34.6040,
+    lng: -58.3810,
+  });
   const [selectedLineaId, setSelectedLineaId] = useState<string | null>("line-200");
   const [selectedParada, setSelectedParada] = useState<Parada | null>(paradas[0] || null);
   const [selectedVehiculo, setSelectedVehiculo] = useState<VehiclePosition | null>(null);
@@ -70,8 +74,8 @@ export default function TransportesAppPage() {
 
   const llegadas = useMemo(() => {
     if (!selectedParada) return [];
-    return TransportService.getLlegadasPorParada(selectedParada.id);
-  }, [selectedParada]);
+    return TransportService.getLlegadasPorParada(selectedParada.id, positions);
+  }, [selectedParada, positions]);
 
   // Cronograma vertical para el colectivo seleccionado
   const timelineStops = useMemo(() => {
@@ -186,13 +190,19 @@ export default function TransportesAppPage() {
 
         <button
           onClick={() => {
-            if (paradas[1]) setSelectedParada(paradas[1]);
+            setUserLocation((prev) =>
+              prev ? null : { lat: -34.6040, lng: -58.3810 }
+            );
           }}
-          title="Mi Ubicación Simulada"
-          aria-label="Ubicar mi posición simulada"
-          className="w-11 h-11 rounded-full bg-white/95 dark:bg-zinc-900/95 shadow-lg border border-slate-200/80 dark:border-zinc-700 flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-white active:scale-90 transition-all"
+          title={userLocation ? "Desactivar mi ubicación simulada" : "Activar mi ubicación simulada (Obelisco)"}
+          aria-label="Alternar mi posición simulada"
+          className={`w-11 h-11 rounded-full shadow-lg border flex items-center justify-center active:scale-90 transition-all ${
+            userLocation
+              ? "bg-amber-500 text-slate-950 border-amber-400 font-bold"
+              : "bg-white/95 dark:bg-zinc-900/95 text-slate-400 border-slate-200/80 dark:border-zinc-700 hover:bg-white"
+          }`}
         >
-          <Navigation className="w-5 h-5 fill-amber-500/20" />
+          <Navigation className={`w-5 h-5 ${userLocation ? "fill-slate-950" : ""}`} />
         </button>
       </div>
 
@@ -214,6 +224,8 @@ export default function TransportesAppPage() {
         llegadas={llegadas}
         alertas={alertas}
         totalVehiculosActivos={positions.length}
+        positions={positions}
+        userLocation={userLocation}
         onSelectParada={handleSelectParada}
         onClearSelection={() => {
           setSelectedLineaId(null);

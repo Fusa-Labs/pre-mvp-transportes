@@ -1,4 +1,7 @@
 import { ALERTAS_MOCK, LINEAS_MOCK, PARADAS_MOCK, RECORRIDOS_MOCK, VEHICULOS_INICIALES_MOCK } from "@/lib/mock/amba-data";
+import { MOCK_ROUTES } from "@/mock/data";
+import { getRouteTrack } from "@/lib/map/route-progress";
+import type { VehiclePosition } from "@/lib/data-service";
 import {
   AlertaServicio,
   EstimacionLlegada,
@@ -20,7 +23,7 @@ export interface IDataService {
   getParadas(lineaId?: string): Parada[];
   getRecorrido(lineaId: string): Recorrido | undefined;
   getRecorridosByLinea(lineaId: string): Recorrido[];
-  getLlegadas(paradaId: string): EstimacionLlegada[];
+  getLlegadas(paradaId: string, positions?: VehiclePosition[]): EstimacionLlegada[];
   getVehiculos(lineaId?: string): VehiculoEnVivo[];
   getAlertas(lineaId?: string): AlertaServicio[];
 }
@@ -59,11 +62,80 @@ export class TransportService implements IDataService {
     return ALERTAS_MOCK.filter((a) => a.lineaId === lineaId);
   }
 
-  public getLlegadas(paradaId: string): EstimacionLlegada[] {
+  public getLlegadas(paradaId: string, positions?: VehiclePosition[]): EstimacionLlegada[] {
     const parada = PARADAS_MOCK.find((p) => p.id === paradaId);
     if (!parada) return [];
 
-    // Generador determinístico (hash) para evitar hydration mismatches entre SSR y cliente
+    // 1. Si disponemos de telemetría GPS viva, calcular arribos reales sincronizados con el mapa
+    if (positions && positions.length > 0) {
+      const liveLlegadas: EstimacionLlegada[] = [];
+
+      parada.lineasIds.forEach((lId) => {
+        const linea = LINEAS_MOCK.find((l) => l.id === lId);
+        if (!linea) return;
+
+        const coords = MOCK_ROUTES[lId];
+        const track = coords ? getRouteTrack(lId, coords) : null;
+        if (!track) return;
+
+        const { alongM: stopAlongM } = track.project(parada.lng, parada.lat);
+        const totalLength = track.totalM;
+
+        // Filtrar y ordenar unidades que se dirigen hacia esta parada
+        const lineVehicles = positions
+          .filter((p) => p.lineId === lId)
+          .map((v) => {
+            const { alongM: vehAlongM } = track.project(v.lng, v.lat);
+            const distAhead = ((stopAlongM - vehAlongM) % totalLength + totalLength) % totalLength;
+            return {
+              ...v,
+              vehAlongM,
+              distAhead,
+            };
+          })
+          .sort((a, b) => a.distAhead - b.distAhead);
+
+        lineVehicles.slice(0, 2).forEach((veh, idx) => {
+          const isAtStop = (veh.isDwelling && (veh.currentStopId === parada.id || veh.distAhead <= 25)) || veh.distAhead <= 12;
+          const speedMps = Math.max(10, veh.speed > 0 ? veh.speed : 16.5) / 3.6;
+          const etaSeconds = isAtStop ? 0 : Math.round(veh.distAhead / speedMps);
+          const etaMin = Math.ceil(etaSeconds / 60);
+
+          let displayStatus: "en-parada" | "arribando" | "minutos";
+          let displayLabel: string;
+
+          if (isAtStop || etaSeconds <= 60) {
+            displayStatus = "en-parada";
+            displayLabel = "En parada";
+          } else if (etaSeconds <= 120) {
+            displayStatus = "arribando";
+            displayLabel = "Arribando";
+          } else {
+            displayStatus = "minutos";
+            displayLabel = `${etaMin} min`;
+          }
+
+          liveLlegadas.push({
+            lineaId: linea.id,
+            lineaNumero: linea.numero,
+            colorHex: linea.colorHex,
+            ramal: linea.ramales[idx] || linea.ramales[0] || "Troncal",
+            minutos: isAtStop ? 0 : etaMin,
+            distanciaMetros: Math.round(veh.distAhead),
+            interno: veh.unitId,
+            ocupacion: isAtStop ? "alta" : etaMin <= 4 ? "media" : "baja",
+            displayStatus,
+            displayLabel,
+          });
+        });
+      });
+
+      if (liveLlegadas.length > 0) {
+        return liveLlegadas.sort((a, b) => a.minutos - b.minutos);
+      }
+    }
+
+    // 2. Fallback determinístico (cuando no hay feed GPS activo)
     const deterministicHash = (str: string): number => {
       let h = 0;
       for (let i = 0; i < str.length; i++) {
@@ -92,6 +164,8 @@ export class TransportService implements IDataService {
         distanciaMetros: baseMin * 260,
         interno: `${interno1}`,
         ocupacion: baseMin < 4 ? "alta" : baseMin < 7 ? "media" : "baja",
+        displayStatus: "minutos",
+        displayLabel: `${baseMin} min`,
       });
 
       if (linea.frecuenciaPicoMin > 0) {
@@ -104,6 +178,8 @@ export class TransportService implements IDataService {
           distanciaMetros: (baseMin + linea.frecuenciaPicoMin) * 270,
           interno: `${interno2}`,
           ocupacion: "baja",
+          displayStatus: "minutos",
+          displayLabel: `${baseMin + linea.frecuenciaPicoMin} min`,
         });
       }
     });
@@ -140,8 +216,8 @@ export class TransportService implements IDataService {
     return ALERTAS_MOCK.filter((a) => a.lineaId === lineId);
   }
 
-  public static getArrivals(stopId: string): Arrival[] {
-    return new TransportService().getLlegadas(stopId);
+  public static getArrivals(stopId: string, positions?: VehiclePosition[]): Arrival[] {
+    return new TransportService().getLlegadas(stopId, positions);
   }
 
   // Compatibilidad con la UI actual
@@ -177,8 +253,8 @@ export class TransportService implements IDataService {
     return VEHICULOS_INICIALES_MOCK;
   }
 
-  public static getLlegadasPorParada(paradaId: string): EstimacionLlegada[] {
-    return new TransportService().getLlegadas(paradaId);
+  public static getLlegadasPorParada(paradaId: string, positions?: VehiclePosition[]): EstimacionLlegada[] {
+    return new TransportService().getLlegadas(paradaId, positions);
   }
 }
 
