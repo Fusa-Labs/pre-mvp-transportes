@@ -63,12 +63,26 @@ export class TransportService implements IDataService {
     const parada = PARADAS_MOCK.find((p) => p.id === paradaId);
     if (!parada) return [];
 
+    // Generador determinístico (hash) para evitar hydration mismatches entre SSR y cliente
+    const deterministicHash = (str: string): number => {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) {
+        h = (h << 5) - h + str.charCodeAt(i);
+        h |= 0;
+      }
+      return Math.abs(h);
+    };
+
     const llegadas: EstimacionLlegada[] = [];
     parada.lineasIds.forEach((lId) => {
       const linea = LINEAS_MOCK.find((l) => l.id === lId);
       if (!linea) return;
 
-      const baseMin = Math.floor(Math.random() * 6) + 2;
+      const seed = deterministicHash(paradaId + lId);
+      const baseMin = (seed % 6) + 2;
+      const interno1 = 1000 + (seed % 800);
+      const interno2 = 2000 + ((seed >> 2) % 800);
+
       llegadas.push({
         lineaId: linea.id,
         lineaNumero: linea.numero,
@@ -76,7 +90,7 @@ export class TransportService implements IDataService {
         ramal: linea.ramales[0] || "Troncal",
         minutos: baseMin,
         distanciaMetros: baseMin * 260,
-        interno: `${Math.floor(Math.random() * 800) + 1000}`,
+        interno: `${interno1}`,
         ocupacion: baseMin < 4 ? "alta" : baseMin < 7 ? "media" : "baja",
       });
 
@@ -88,7 +102,7 @@ export class TransportService implements IDataService {
           ramal: linea.ramales[1] || linea.ramales[0] || "Troncal",
           minutos: baseMin + linea.frecuenciaPicoMin,
           distanciaMetros: (baseMin + linea.frecuenciaPicoMin) * 270,
-          interno: `${Math.floor(Math.random() * 800) + 2000}`,
+          interno: `${interno2}`,
           ocupacion: "baja",
         });
       }
