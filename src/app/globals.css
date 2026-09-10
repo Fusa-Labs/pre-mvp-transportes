@@ -183,10 +183,23 @@ html, body {
   top: calc(max(14px, env(safe-area-inset-top)) + 58px) !important;
   right: 16px !important;
   margin: 0 !important;
+  padding: 0 !important;
   z-index: 20 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: 40px !important;
+  pointer-events: none !important;
+}
+
+.maplibregl-ctrl-top-right .maplibregl-ctrl {
+  margin: 0 !important;
+  pointer-events: auto !important;
 }
 
 .maplibregl-ctrl-group {
+  width: 40px !important;
+  box-sizing: border-box !important;
   background-color: var(--canvas) !important;
   border: 1px solid var(--hairline) !important;
   border-radius: 9999px !important;
@@ -194,11 +207,13 @@ html, body {
   box-shadow: none !important;
   display: flex !important;
   flex-direction: column !important;
+  align-items: center !important;
 }
 
 .maplibregl-ctrl-group button {
-  width: 40px !important;
-  height: 40px !important;
+  width: 38px !important;
+  height: 38px !important;
+  box-sizing: border-box !important;
   background-color: transparent !important;
   border: none !important;
   border-bottom: 1px solid var(--hairline-soft) !important;
