@@ -10,10 +10,7 @@ import {
   ChevronDown,
   Users,
   BusFront,
-  Zap,
   CheckCircle2,
-  AlertCircle,
-  Activity,
 } from "lucide-react";
 import { AlertaServicio, EstimacionLlegada, Linea, Parada } from "@/types/transport";
 
@@ -31,9 +28,9 @@ interface BottomSheetPanelProps {
 }
 
 /**
- * Componente modular BottomSheetPanel (Fase 4).
+ * Componente modular BottomSheetPanel (Fase 4 & 5).
  * Panel táctil deslizable inferior con 3 estados conceptuales (collapsed, peek, expanded)
- * implementado con Motion y soporte de drag gestures.
+ * optimizado para ergonomía móvil, safe-areas (home bar) y touch targets de 44px+.
  */
 export default function BottomSheetPanel({
   selectedLinea,
@@ -48,32 +45,27 @@ export default function BottomSheetPanel({
   const [sheetState, setSheetState] = useState<SheetState>("peek");
   const [activeTab, setActiveTab] = useState<"llegadas" | "paradas" | "alertas">("llegadas");
 
-  // Paradas visibles según filtro de línea
   const paradasFiltradas = selectedLinea
     ? paradas.filter((p) => p.lineasIds.includes(selectedLinea.id))
     : paradas;
 
-  // Alertas activas para la línea o globales
   const alertasFiltradas = selectedLinea
     ? alertas.filter((a) => a.lineaId === selectedLinea.id)
     : alertas;
 
-  // Alturas asociadas a cada estado
+  // Alturas optimizadas con dvh y safe area
   const heightStyles: Record<SheetState, string> = {
-    collapsed: "h-[74px]",
-    peek: "h-[330px]",
-    expanded: "h-[80vh]",
+    collapsed: "h-[calc(76px+env(safe-area-inset-bottom,0px))]",
+    peek: "h-[calc(340px+env(safe-area-inset-bottom,0px))]",
+    expanded: "h-[82dvh]",
   };
 
-  // Manejo de gestos drag para transicionar entre los 3 estados
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    const threshold = 40;
+    const threshold = 35;
     if (info.offset.y < -threshold) {
-      // Drag hacia arriba
       if (sheetState === "collapsed") setSheetState("peek");
       else if (sheetState === "peek") setSheetState("expanded");
     } else if (info.offset.y > threshold) {
-      // Drag hacia abajo
       if (sheetState === "expanded") setSheetState("peek");
       else if (sheetState === "peek") setSheetState("collapsed");
     }
@@ -89,23 +81,23 @@ export default function BottomSheetPanel({
     <motion.div
       drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={0.15}
+      dragElastic={0.12}
       onDragEnd={handleDragEnd}
-      className={`fixed bottom-0 left-0 right-0 z-40 max-w-lg mx-auto bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-zinc-800 rounded-t-3xl shadow-2xl transition-all duration-300 pointer-events-auto flex flex-col ${heightStyles[sheetState]}`}
+      className={`fixed bottom-0 left-0 right-0 z-40 max-w-lg mx-auto bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-zinc-800 rounded-t-3xl shadow-2xl transition-all duration-300 pointer-events-auto flex flex-col pb-[max(16px,env(safe-area-inset-bottom))] ${heightStyles[sheetState]}`}
     >
-      {/* 1. Handle de agarre superior & Barra de Estado Resumen */}
+      {/* 1. Handle de agarre superior & Barra de Estado Resumen (Touch target de 48px) */}
       <div
         onClick={toggleNextState}
-        className="pt-2.5 pb-2 px-5 flex flex-col items-center cursor-pointer select-none shrink-0"
+        className="pt-2.5 pb-2 px-5 flex flex-col items-center cursor-pointer select-none shrink-0 min-h-[48px]"
       >
-        <div className="w-10 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-700 mb-1.5" />
+        <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-700 mb-2" />
 
         <div className="w-full flex items-center justify-between">
           <div className="flex items-center gap-2 truncate">
             {selectedLinea ? (
               <div className="flex items-center gap-2 truncate">
                 <span
-                  className="px-2.5 py-0.5 rounded-lg text-xs font-black shadow-sm shrink-0"
+                  className="px-2.5 py-1 rounded-lg text-xs font-black shadow-sm shrink-0"
                   style={{ backgroundColor: selectedLinea.colorHex, color: selectedLinea.textColorHex }}
                 >
                   LÍNEA {selectedLinea.numero}
@@ -142,12 +134,12 @@ export default function BottomSheetPanel({
         </div>
       </div>
 
-      {/* 2. Tabs de Navegación del Panel (visibles en peek y expanded) */}
+      {/* 2. Tabs de Navegación (Touch targets ergonómicos de 44px de altura mínima) */}
       {sheetState !== "collapsed" && (
-        <div className="px-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-around shrink-0">
+        <div className="px-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-around shrink-0 min-h-[44px]">
           <button
             onClick={() => setActiveTab("llegadas")}
-            className={`py-2 px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 ${
+            className={`min-h-[44px] px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 touch-manipulation ${
               activeTab === "llegadas"
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
@@ -165,7 +157,7 @@ export default function BottomSheetPanel({
 
           <button
             onClick={() => setActiveTab("paradas")}
-            className={`py-2 px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 ${
+            className={`min-h-[44px] px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 touch-manipulation ${
               activeTab === "paradas"
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
@@ -183,7 +175,7 @@ export default function BottomSheetPanel({
 
           <button
             onClick={() => setActiveTab("alertas")}
-            className={`py-2 px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 ${
+            className={`min-h-[44px] px-3 text-xs font-bold transition-all relative flex items-center gap-1.5 touch-manipulation ${
               activeTab === "alertas"
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
@@ -203,7 +195,7 @@ export default function BottomSheetPanel({
 
       {/* 3. Contenido Desplazable del Panel */}
       {sheetState !== "collapsed" && (
-        <div className="flex-1 p-4 overflow-y-auto no-scrollbar space-y-3">
+        <div className="flex-1 p-4 overflow-y-auto no-scrollbar space-y-3 overscroll-contain">
           <AnimatePresence mode="wait">
             {/* TAB 1: FICHA TÉCNICA & LLEGADAS (ETA) */}
             {activeTab === "llegadas" && (
@@ -214,7 +206,7 @@ export default function BottomSheetPanel({
                 exit={{ opacity: 0, y: -6 }}
                 className="space-y-3"
               >
-                {/* Ficha técnica compacta si hay línea seleccionada */}
+                {/* Ficha técnica compacta */}
                 {selectedLinea && (
                   <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 text-xs space-y-1.5">
                     <div className="flex items-center justify-between">
@@ -247,7 +239,7 @@ export default function BottomSheetPanel({
                     llegadas.map((llegada, idx) => (
                       <div
                         key={`${llegada.lineaId}-${llegada.interno}-${idx}`}
-                        className="bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-700/60 rounded-2xl p-3 flex items-center justify-between shadow-sm hover:shadow transition-shadow"
+                        className="bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-700/60 rounded-2xl p-3 flex items-center justify-between shadow-sm"
                       >
                         <div className="flex items-center gap-3">
                           <div
@@ -266,7 +258,7 @@ export default function BottomSheetPanel({
                               <span>•</span>
                               <span className="flex items-center gap-1">
                                 <Users className="w-3 h-3" />
-                                Ocupación {llegada.ocupacion}
+                                {llegada.ocupacion}
                               </span>
                             </div>
                           </div>
@@ -296,7 +288,7 @@ export default function BottomSheetPanel({
               </motion.div>
             )}
 
-            {/* TAB 2: LISTA DE PARADAS & RECORRIDO */}
+            {/* TAB 2: LISTA DE PARADAS & RECORRIDO (Touch target de 48px por parada) */}
             {activeTab === "paradas" && (
               <motion.div
                 key="tab-paradas-content"
@@ -310,7 +302,7 @@ export default function BottomSheetPanel({
                     Secuencia de paradas ({paradasFiltradas.length})
                   </p>
                   <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                    Click para enfocar en mapa
+                    Tocar para enfocar
                   </span>
                 </div>
 
@@ -320,23 +312,20 @@ export default function BottomSheetPanel({
                     <div
                       key={parada.id}
                       onClick={() => onSelectParada(parada)}
-                      className={`flex items-start gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
+                      className={`min-h-[48px] flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all active:scale-[0.98] ${
                         isSelected
                           ? "bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700"
                           : "hover:bg-slate-100 dark:hover:bg-zinc-800"
                       }`}
                     >
-                      <div className="flex flex-col items-center shrink-0 mt-0.5">
+                      <div className="flex flex-col items-center shrink-0">
                         <div
-                          className={`w-3 h-3 rounded-full border-2 ${
+                          className={`w-3.5 h-3.5 rounded-full border-2 ${
                             isSelected
                               ? "bg-amber-500 border-white ring-2 ring-amber-500"
                               : "bg-slate-400 dark:bg-zinc-600 border-white dark:border-zinc-900"
                           }`}
                         />
-                        {idx < paradasFiltradas.length - 1 && (
-                          <div className="w-0.5 h-7 bg-slate-200 dark:bg-zinc-700 mt-1" />
-                        )}
                       </div>
 
                       <div className="flex-1 truncate">
@@ -384,7 +373,7 @@ export default function BottomSheetPanel({
                 {alertasFiltradas.length === 0 ? (
                   <div className="text-center py-6 text-slate-400 text-xs flex flex-col items-center gap-1.5">
                     <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                    <span>Todas las líneas operando en condiciones normales.</span>
+                    <span>Todas las líneas operando con normalidad.</span>
                   </div>
                 ) : (
                   alertasFiltradas.map((alerta) => (

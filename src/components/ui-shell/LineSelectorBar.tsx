@@ -10,8 +10,9 @@ interface LineSelectorBarProps {
 }
 
 /**
- * Componente modular LineSelectorBar (Fase 4).
+ * Componente modular LineSelectorBar (Fase 4 & 5).
  * Selector horizontal tipo chips para alternar rápidamente entre líneas activas de la flota.
+ * Optimizado para touch targets y scrolling táctil fluido en móvil.
  */
 export default function LineSelectorBar({
   lineas,
@@ -19,17 +20,17 @@ export default function LineSelectorBar({
   onSelectLinea,
 }: LineSelectorBarProps) {
   return (
-    <div className="w-full flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+    <div className="w-full flex items-center gap-2 overflow-x-auto no-scrollbar py-1 touch-pan-x overscroll-x-contain">
       {/* Opción 'Todas' las líneas */}
       <button
         onClick={() => onSelectLinea(null)}
-        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-md shrink-0 flex items-center gap-1.5 ${
+        className={`min-h-[40px] px-3.5 py-2 rounded-full text-xs font-bold transition-all shadow-md shrink-0 flex items-center gap-1.5 touch-manipulation active:scale-95 ${
           selectedLineaId === null
             ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 scale-105 ring-2 ring-offset-2 ring-slate-900 dark:ring-white"
             : "bg-white/95 dark:bg-zinc-900/95 text-slate-700 dark:text-slate-300 hover:bg-white"
         }`}
       >
-        <Radio className="w-3 h-3" />
+        <Radio className="w-3.5 h-3.5" />
         <span>Todas</span>
       </button>
 
@@ -40,7 +41,7 @@ export default function LineSelectorBar({
           <button
             key={linea.id}
             onClick={() => onSelectLinea(isSelected ? null : linea.id)}
-            className={`px-3 py-1.5 rounded-full text-xs font-black transition-all shadow-md shrink-0 flex items-center gap-1.5 ${
+            className={`min-h-[40px] px-3.5 py-2 rounded-full text-xs font-black transition-all shadow-md shrink-0 flex items-center gap-1.5 touch-manipulation active:scale-95 ${
               isSelected
                 ? "ring-2 ring-offset-2 ring-slate-900 dark:ring-white scale-105 shadow-lg"
                 : "opacity-90 hover:opacity-100 hover:scale-102"

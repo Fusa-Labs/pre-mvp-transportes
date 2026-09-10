@@ -12,8 +12,11 @@ import { Navigation, RotateCcw, Bus } from "lucide-react";
 
 /**
  * Vista Principal de la Maqueta de Transportes AMBA.
- * Integra el UI Shell completo (Fase 4): FloatingSearch, LineSelectorBar,
- * BottomSheetPanel con 3 estados y el Map Engine interactivo (Fase 3).
+ * Ajustes de Performance y Ergonomía Móvil (Fase 5):
+ * - 100dvh para evitar saltos de la barra del navegador móvil
+ * - Safe areas para notch / Dynamic Island y Home Indicator
+ * - Touch targets mínimos de 44px
+ * - Aceleración GPU para animaciones a 60fps
  */
 export default function TransportesAppPage() {
   const lineas = useMemo(() => TransportService.getLineas(), []);
@@ -53,9 +56,9 @@ export default function TransportesAppPage() {
   };
 
   return (
-    <main className="relative w-full h-screen overflow-hidden select-none bg-slate-950">
-      {/* 1. Header Flotante Superior: FloatingSearch + LineSelectorBar */}
-      <div className="absolute top-4 left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col gap-2">
+    <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-slate-950 touch-manipulation">
+      {/* 1. Header Flotante Superior: Respeta Safe-Area-Top (Notch / Dynamic Island) */}
+      <div className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col gap-2">
         <FloatingSearch
           lineas={lineas}
           paradas={paradas}
@@ -70,7 +73,7 @@ export default function TransportesAppPage() {
         />
       </div>
 
-      {/* 2. Canvas de Mapa Vectorial Interactivo (Map Engine Fase 3) */}
+      {/* 2. Canvas de Mapa Vectorial Interactivo (Map Engine 60fps) */}
       <DynamicMap
         recorridos={recorridos}
         lineas={lineas}
@@ -82,17 +85,18 @@ export default function TransportesAppPage() {
         onSelectVehiculo={handleSelectVehiculo}
       />
 
-      {/* 3. Controles Flotantes en el Mapa (Margen derecho) */}
-      <div className="absolute right-4 top-48 z-20 flex flex-col gap-2 pointer-events-auto">
+      {/* 3. Controles Flotantes en el Mapa con Touch Targets de 44px */}
+      <div className="absolute right-4 top-[calc(max(14px,env(safe-area-inset-top))+124px)] z-20 flex flex-col gap-2 pointer-events-auto">
         <button
           onClick={() => {
             setSelectedLineaId(null);
             if (paradas[0]) setSelectedParada(paradas[0]);
           }}
           title="Centrar en AMBA"
-          className="w-10 h-10 rounded-full bg-white/95 dark:bg-zinc-900/95 shadow-lg border border-slate-200/80 dark:border-zinc-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-white active:scale-95 transition-all"
+          aria-label="Centrar vista en AMBA"
+          className="w-11 h-11 rounded-full bg-white/95 dark:bg-zinc-900/95 shadow-lg border border-slate-200/80 dark:border-zinc-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-white active:scale-90 transition-all"
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className="w-5 h-5" />
         </button>
 
         <button
@@ -100,23 +104,24 @@ export default function TransportesAppPage() {
             if (paradas[1]) setSelectedParada(paradas[1]);
           }}
           title="Mi Ubicación Simulada"
-          className="w-10 h-10 rounded-full bg-white/95 dark:bg-zinc-900/95 shadow-lg border border-slate-200/80 dark:border-zinc-700 flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-white active:scale-95 transition-all"
+          aria-label="Ubicar mi posición simulada"
+          className="w-11 h-11 rounded-full bg-white/95 dark:bg-zinc-900/95 shadow-lg border border-slate-200/80 dark:border-zinc-700 flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-white active:scale-90 transition-all"
         >
-          <Navigation className="w-4 h-4 fill-amber-500/20" />
+          <Navigation className="w-5 h-5 fill-amber-500/20" />
         </button>
       </div>
 
       {/* 4. Pastilla Informativa de Flota Activa */}
-      <div className="absolute left-4 top-36 z-20 pointer-events-none hidden sm:block">
-        <div className="bg-slate-900/80 backdrop-blur-md text-white px-3 py-1.5 rounded-full border border-slate-700/80 shadow-lg flex items-center gap-2 text-xs font-semibold">
-          <Bus className="w-3.5 h-3.5 text-amber-400" />
+      <div className="absolute left-4 top-[calc(max(14px,env(safe-area-inset-top))+124px)] z-20 pointer-events-none hidden sm:block">
+        <div className="bg-slate-900/85 backdrop-blur-md text-white px-3.5 py-2 rounded-full border border-slate-700/80 shadow-lg flex items-center gap-2 text-xs font-semibold">
+          <Bus className="w-4 h-4 text-amber-400 shrink-0" />
           <span>{vehiculos.length} unidades activas</span>
           <span className="text-slate-500">•</span>
-          <span className="text-emerald-400">Red AMBA Conectada</span>
+          <span className="text-emerald-400">AMBA Conectado</span>
         </div>
       </div>
 
-      {/* 5. Panel Inferior Deslizable (BottomSheetPanel con 3 estados) */}
+      {/* 5. Panel Inferior Deslizable con Safe-Area-Bottom (Home Indicator) */}
       <BottomSheetPanel
         selectedLinea={selectedLinea}
         selectedParada={selectedParada}
