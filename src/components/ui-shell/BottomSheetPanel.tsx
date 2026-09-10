@@ -13,6 +13,11 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { AlertaServicio, EstimacionLlegada, Linea, Parada } from "@/types/transport";
+import type { VehiclePosition } from "@/lib/data-service";
+import type { CameraMode } from "@/lib/map/camera-controller";
+import type { StopAlongRoute } from "@/lib/map/route-progress";
+import { RouteTimeline } from "@/components/map/RouteTimeline";
+import { Eye } from "lucide-react";
 
 export type SheetState = "collapsed" | "peek" | "expanded";
 
@@ -25,6 +30,11 @@ interface BottomSheetPanelProps {
   totalVehiculosActivos?: number;
   onSelectParada: (parada: Parada) => void;
   onClearSelection: () => void;
+  selectedVehiculo?: VehiclePosition | null;
+  cameraMode?: CameraMode;
+  onToggle3D?: () => void;
+  timelineStops?: StopAlongRoute[];
+  busProgress?: number;
 }
 
 /**
@@ -41,6 +51,11 @@ export default function BottomSheetPanel({
   totalVehiculosActivos = 0,
   onSelectParada,
   onClearSelection,
+  selectedVehiculo = null,
+  cameraMode = "overview",
+  onToggle3D,
+  timelineStops = [],
+  busProgress = 0,
 }: BottomSheetPanelProps) {
   const [sheetState, setSheetState] = useState<SheetState>("peek");
   const [activeTab, setActiveTab] = useState<"llegadas" | "paradas" | "alertas">("llegadas");
@@ -196,6 +211,75 @@ export default function BottomSheetPanel({
       {/* 3. Contenido Desplazable del Panel */}
       {sheetState !== "collapsed" && (
         <div className="flex-1 p-4 overflow-y-auto no-scrollbar space-y-3 overscroll-contain">
+          {/* Tarjeta de Unidad en Vivo Seleccionada */}
+          {selectedVehiculo && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="px-2.5 py-1 rounded-lg text-white font-black text-sm shadow-sm"
+                    style={{ backgroundColor: selectedLinea?.colorHex || "#1D4ED8" }}
+                  >
+                    {selectedLinea?.numero || selectedVehiculo.lineId.replace("line-", "")}
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                      Interno {selectedVehiculo.unitId}
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {selectedLinea?.nombre || "Unidad en Circulación"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end">
+                  <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums">
+                    {Math.round(selectedVehiculo.speed)} km/h
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    GPS en vivo
+                  </span>
+                </div>
+              </div>
+
+              {onToggle3D && (
+                <button
+                  onClick={onToggle3D}
+                  className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm touch-manipulation min-h-[44px] ${
+                    cameraMode === "navigation-vehicle"
+                      ? "bg-amber-500 text-slate-950 font-black hover:bg-amber-400"
+                      : "bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-zinc-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>
+                    {cameraMode === "navigation-vehicle"
+                      ? "Cámara 3D activa (Tocar para vista 2D)"
+                      : "Seguir colectivo en 3D (Pitch 52°)"}
+                  </span>
+                </button>
+              )}
+
+              {timelineStops.length > 0 && (
+                <div className="pt-2 border-t border-amber-500/20">
+                  <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">
+                    Cronograma de paradas
+                  </p>
+                  <RouteTimeline
+                    color={selectedLinea?.colorHex || "#1D4ED8"}
+                    onColor="#FFFFFF"
+                    stops={timelineStops}
+                    busProgress={busProgress}
+                    busAlongM={0}
+                    speedKmh={selectedVehiculo.speed || 15}
+                    shortName={selectedLinea?.numero || selectedVehiculo.lineId.replace("line-", "")}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <AnimatePresence mode="wait">
             {/* TAB 1: FICHA TÉCNICA & LLEGADAS (ETA) */}
             {activeTab === "llegadas" && (

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MapCanvas — Mapa en vivo con colectivos (RutaBA)
  *
  * Arquitectura profesional:
@@ -120,7 +120,7 @@ interface UserLocationPoint {
   accuracy?: number;
 }
 
-export interface MapCanvasProps {
+interface MapCanvasProps {
   positions: VehiclePosition[];
   highlightLines?: string[];
   onBusSelect?: (pos: VehiclePosition | null) => void;
@@ -1002,7 +1002,7 @@ export function MapCanvas({
       map.getCanvas().style.cursor = 'pointer';
       const f = e.features?.[0];
       if (!f) return;
-      const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+      const coords = (f.geometry as { coordinates: [number, number] }).coordinates;
       stopPopup.setLngLat(coords).setHTML(`<strong>${f.properties?.name}</strong>`).addTo(map);
     });
     map.on('mouseleave', 'stops', () => {
@@ -1069,7 +1069,7 @@ export function MapCanvas({
       let best = feats[0];
       let bestD = Infinity;
       for (const f of feats) {
-        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+        const coords = (f.geometry as { coordinates: [number, number] }).coordinates;
         const c = map.project([coords[0], coords[1]]);
         const d = Math.hypot(c.x - e.point.x, c.y - e.point.y);
         if (d < bestD) {
