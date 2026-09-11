@@ -57,7 +57,7 @@ export default function FloatingSearch({
 
           <input
             type="text"
-            placeholder="Buscar parada de la Línea 65..."
+            placeholder="Buscar línea, parada o ramal..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);

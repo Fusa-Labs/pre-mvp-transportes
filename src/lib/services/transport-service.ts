@@ -37,8 +37,16 @@ export class TransportService implements IDataService {
     return LINEAS_MOCK.find((l) => l.id === id || l.numero === id);
   }
 
-  public getParadas(lineaId?: string): Parada[] {
+  public getParadas(lineaId?: string, ramalId?: string): Parada[] {
     if (!lineaId) return PARADAS_MOCK;
+    if (ramalId) {
+      const linea = LINEAS_MOCK.find((l) => l.id === lineaId);
+      const ramal = linea?.ramalesDetalle?.find((r) => r.id === ramalId);
+      if (ramal) {
+        const stopIds = new Set(ramal.recorridos.flatMap((rec) => rec.paradas));
+        return PARADAS_MOCK.filter((p) => stopIds.has(p.id));
+      }
+    }
     return PARADAS_MOCK.filter((p) => p.lineasIds.includes(lineaId));
   }
 
@@ -262,6 +270,11 @@ export class TransportService implements IDataService {
 
   public static getRecorridosByLinea(lineaId: string): Recorrido[] {
     return RECORRIDOS_MOCK.filter((r) => r.lineaId === lineaId);
+  }
+
+  public static getRamalesByLinea(lineaId: string) {
+    const linea = LINEAS_MOCK.find((l) => l.id === lineaId);
+    return linea?.ramalesDetalle ?? [];
   }
 
   public static getAlertas(): AlertaServicio[] {

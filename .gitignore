@@ -53,3 +53,5 @@ next-env.d.ts
 # scratch
 scratch/
 tmp/
+# Local Pi runtime state
+.atl/

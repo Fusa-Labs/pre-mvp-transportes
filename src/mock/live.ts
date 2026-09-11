@@ -11,7 +11,7 @@
  */
 
 import type { VehiclePosition, Unsubscribe } from '@/lib/data-service';
-import { MOCK_ROUTES, MOCK_UNITS, MOCK_STOPS } from './data';
+import { MOCK_ROUTES, MOCK_UNITS, MOCK_STOPS, MOCK_LINE_STOPS } from './data';
 
 // ─── Configuración Cinemática y Operativa ───────────────────
 
@@ -150,6 +150,7 @@ interface VehicleState {
 }
 
 const stopsByLineCache: Record<string, LineStopOnRoute[]> = {};
+const routeCacheByLine: Record<string, RouteCache> = {};
 
 function projectStopOnRoute(routeCache: RouteCache, stop: { lat: number; lng: number }): number {
   const { points, cumLength } = routeCache;
@@ -184,10 +185,20 @@ function projectStopOnRoute(routeCache: RouteCache, stop: { lat: number; lng: nu
   return bestAlongM;
 }
 
-function getLineStopsOnRoute(lineId: string, routeCache: RouteCache): LineStopOnRoute[] {
-  if (stopsByLineCache[lineId]) return stopsByLineCache[lineId]!;
+function getLineStopsOnRoute(targetId: string, routeCache: RouteCache): LineStopOnRoute[] {
+  if (stopsByLineCache[targetId]) return stopsByLineCache[targetId]!;
 
-  const matched = MOCK_STOPS.filter((s) => s.lineIds.includes(lineId));
+  let stopIds: string[] = [];
+  if (MOCK_LINE_STOPS[targetId]) {
+    stopIds = MOCK_LINE_STOPS[targetId]!;
+  } else {
+    stopIds = MOCK_STOPS.filter((s) => s.lineIds.includes(targetId)).map((s) => s.id);
+  }
+
+  const matched = stopIds
+    .map((id) => MOCK_STOPS.find((s) => s.id === id))
+    .filter((s): s is (typeof MOCK_STOPS)[number] => Boolean(s));
+
   const projected: LineStopOnRoute[] = matched.map((s) => ({
     id: s.id,
     name: s.name,
@@ -198,7 +209,7 @@ function getLineStopsOnRoute(lineId: string, routeCache: RouteCache): LineStopOn
 
   // Ordenar secuencialmente a lo largo de la traza
   projected.sort((a, b) => a.alongM - b.alongM);
-  stopsByLineCache[lineId] = projected;
+  stopsByLineCache[targetId] = projected;
   return projected;
 }
 
@@ -377,41 +388,82 @@ function initializeVehicles(): void {
   vehicles.length = 0;
 
   for (const [lineId, unitIds] of Object.entries(MOCK_UNITS)) {
-    const route = MOCK_ROUTES[lineId];
-    if (!route || route.length < 2) continue;
+    // Agrupar unidades por ramal para que cada coche circule sobre la traza exacta de su ramal
+    const unitsByRamal: Record<string, string[]> = {};
+    for (const unitId of unitIds) {
+      const ramalId = getRamalForUnit(lineId, unitId) || lineId;
+      if (!unitsByRamal[ramalId]) unitsByRamal[ramalId] = [];
+      unitsByRamal[ramalId].push(unitId);
+    }
 
-    const routeCache = buildRouteCache(route);
-    const stops = getLineStopsOnRoute(lineId, routeCache);
-    const count = unitIds.length;
+    for (const [ramalId, rUnits] of Object.entries(unitsByRamal)) {
+      const route = MOCK_ROUTES[ramalId] || MOCK_ROUTES[lineId];
+      if (!route || route.length < 2) continue;
 
-    unitIds.forEach((unitId, idx) => {
-      // Espaciado equitativo perfecto a lo largo de la traza para cumplir los 5 min exactos de cadencia
-      const spacedDist = (idx / Math.max(1, count)) * routeCache.totalLength;
-      vehicles.push(createVehicle(lineId, unitId, routeCache, stops, undefined, spacedDist));
-    });
+      const routeCache = buildRouteCache(route);
+      routeCacheByLine[ramalId] = routeCache;
+      const stops = getLineStopsOnRoute(ramalId, routeCache);
+      stopsByLineCache[ramalId] = stops;
+      const count = rUnits.length;
+
+      rUnits.forEach((unitId, idx) => {
+        // Espaciado equitativo a lo largo de la traza de este ramal específico
+        const spacedDist = (idx / Math.max(1, count)) * routeCache.totalLength;
+        vehicles.push(createVehicle(lineId, unitId, routeCache, stops, undefined, spacedDist));
+      });
+    }
+
+    // Ruta de fallback por línea
+    const defaultRoute = MOCK_ROUTES[lineId];
+    if (defaultRoute && defaultRoute.length >= 2) {
+      routeCacheByLine[lineId] = buildRouteCache(defaultRoute);
+    }
   }
+}
+
+export function getRamalForUnit(lineId: string, unitId: string): string {
+  if (lineId === 'line-65') return 'ramal-65-troncal';
+  if (lineId === 'line-194') {
+    const num = parseInt(unitId, 10);
+    if (num >= 100 && num < 200) return 'ramal-194-a';
+    if (num >= 200 && num < 300) return 'ramal-194-h';
+    if (num >= 300 && num < 400) return 'ramal-194-b';
+    if (num >= 400 && num < 450) return 'ramal-194-d';
+    if (num >= 450 && num < 470) return 'ramal-194-e';
+    if (num >= 470 && num < 500) return 'ramal-194-g';
+    if (num >= 500 && num < 600) return 'ramal-194-f';
+    if (num >= 600 && num < 700) return 'ramal-194-i';
+    return 'ramal-194-h';
+  }
+  return '';
 }
 
 function tick(): void {
   for (let i = 0; i < vehicles.length; i++) {
     const v = vehicles[i]!;
-    const stops = stopsByLineCache[v.lineId] || [];
+    const ramalId = getRamalForUnit(v.lineId, v.unitId);
+    const stops = stopsByLineCache[ramalId] || stopsByLineCache[v.lineId] || [];
     vehicles[i] = advanceVehicle(v, stops);
   }
 
-  const positions: VehiclePosition[] = vehicles.map((v) => ({
-    lineId: v.lineId,
-    unitId: v.unitId,
-    lat: v.lat,
-    lng: v.lng,
-    heading: v.heading,
-    speed: v.speed,
-    timestamp: Date.now(),
-    isDwelling: v.movementState === 'DWELLING',
-    dwellRemainingSeconds: v.dwellRemainingSeconds,
-    currentStopId: v.currentStopId,
-    direction: (v.distanceTraveled < 19040 ? 'ida' : 'vuelta') as 'ida' | 'vuelta',
-  }));
+  const positions: VehiclePosition[] = vehicles.map((v) => {
+    const ramalId = getRamalForUnit(v.lineId, v.unitId);
+    const halfLen = (routeCacheByLine[ramalId]?.totalLength ?? routeCacheByLine[v.lineId]?.totalLength ?? 38000) / 2;
+    return {
+      lineId: v.lineId,
+      ramalId,
+      unitId: v.unitId,
+      lat: v.lat,
+      lng: v.lng,
+      heading: v.heading,
+      speed: v.speed,
+      timestamp: Date.now(),
+      isDwelling: v.movementState === 'DWELLING',
+      dwellRemainingSeconds: v.dwellRemainingSeconds,
+      currentStopId: v.currentStopId,
+      direction: (v.distanceTraveled < halfLen ? 'ida' : 'vuelta') as 'ida' | 'vuelta',
+    };
+  });
 
   for (const cb of subscribers) {
     cb(positions);

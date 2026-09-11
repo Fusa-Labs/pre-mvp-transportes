@@ -1,176 +1,145 @@
 /**
- * Mock Data — Colectivos AMBA (Línea Oficial: Línea 65 La Nueva Metropol S.A.)
- * Recorrido oficial Constitución – Barrancas de Belgrano (Circuito completo 36.06 km).
- * 24 unidades activas reales simultáneas con frecuencia pico de 5 minutos.
+ * Mock Data — Red de Transporte AMBA Calibrada
+ * Línea 65 (Constitución – Barrancas de Belgrano) y Línea 194 (La Nueva Metropol / Chevallier).
+ * Alimentado directamente por el dataset dimensional de @/data/routes.json (v2.0).
  */
 
 import type { Line, Stop, Alert } from '@/lib/data-service';
-import snappedRoutes from '@/data/routes.json';
+import type { TransportNetworkDataset } from '@/types/transport';
+import rawDataset from '@/data/routes.json';
 
-const ALL_SNAPPED = snappedRoutes as unknown as Record<string, [number, number][]>;
+export const DATASET = rawDataset as unknown as TransportNetworkDataset;
 
-// ─── Rutas (Geometría oficial Metropol KML / Ida y Vuelta calibrados) ───
+// ─── Rutas (Geometrías extraídas del dataset) ───────────────────────────
+const extractedRoutes: Record<string, [number, number][]> = {};
+
+for (const linea of DATASET.lineas) {
+  for (const ramal of linea.ramales) {
+    // Clave de ramal por defecto (primer recorrido del ramal)
+    if (ramal.recorridos[0]) {
+      extractedRoutes[ramal.id] = ramal.recorridos[0].coordenadas;
+    }
+    for (const rec of ramal.recorridos) {
+      extractedRoutes[rec.id] = rec.coordenadas;
+    }
+  }
+  // Clave de línea por defecto (primer recorrido del primer ramal)
+  if (linea.ramales[0]?.recorridos[0]) {
+    extractedRoutes[linea.id] = linea.ramales[0].recorridos[0].coordenadas;
+  }
+}
+
+// Mantener compatibilidad con claves canónicas
 export const MOCK_ROUTES: Record<string, [number, number][]> = {
-  'line-65': ALL_SNAPPED['line-65'] ?? [],
-  'line-65-ida': ALL_SNAPPED['line-65-ida'] ?? [],
-  'line-65-vuelta': ALL_SNAPPED['line-65-vuelta'] ?? [],
+  ...extractedRoutes,
+  'line-65': extractedRoutes['line-65-ida'] || extractedRoutes['line-65'] || [],
+  'line-194': extractedRoutes['line-194-a-ida'] || extractedRoutes['line-194'] || [],
 };
 
-// ─── Colores por Dirección (Celeste para Ida, Rojo para Vuelta) ────────
+// ─── Colores por Dirección y Ramal ─────────────────────────────────────
 export const ROUTE_COLORS_BY_DIRECTION = {
   ida: {
-    color: '#0EA5E9', // Celeste
+    color: '#0284C7', // Azul Cerúleo
     colorLight: '#7DD3FC',
   },
   vuelta: {
-    color: '#EF4444', // Rojo
-    colorLight: '#FCA5A5',
+    color: '#EA580C', // Naranja Intenso
+    colorLight: '#FDBA74',
   },
 };
 
-// ─── Línea Oficial Metropol ───────────────────────────────────────────
-export const MOCK_LINES: Line[] = [
-  {
-    id: 'line-65',
-    name: 'Barrancas de Belgrano – Plaza Constitución',
-    shortName: '65',
-    color: '#0EA5E9', // Color celeste primario (ida)
-    direction: 'Barrancas de Belgrano – Plaza Constitución',
-    frequency: 5,
-  },
-];
+export const RAMAL_COLORS: Record<string, string> = {
+  'ramal-65-troncal': '#0284C7',
+  'ramal-194-a': '#06B6D4',
+  'ramal-194-b': '#A855F7',
+  'ramal-194-d': '#10B981',
+  'ramal-194-e': '#84CC16',
+  'ramal-194-f': '#3B82F6',
+  'ramal-194-g': '#14B8A6',
+  'ramal-194-h': '#6366F1',
+  'ramal-194-i': '#EF4444',
+};
 
-// ─── 18 Paradas Oficiales Calibradas a 0.0m de la Traza ───────────────
-export const MOCK_STOPS: Stop[] = [
-  {
-    id: 'stop-65-01',
-    name: 'Plaza Constitución (Cabecera Sur)',
-    lat: -34.628772,
-    lng: -58.379175,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-02',
-    name: 'Hospital Garrahan',
-    lat: -34.634219,
-    lng: -58.390904,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-03',
-    name: 'Hospital Muñiz / Parque Ameghino',
-    lat: -34.637114,
-    lng: -58.405632,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-04',
-    name: 'Hospital de Quemados',
-    lat: -34.618884,
-    lng: -58.42843,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-05',
-    name: 'Parque Centenario / Hospital Durand',
-    lat: -34.604463,
-    lng: -58.434711,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-06',
-    name: 'Hospital Naval',
-    lat: -34.604176,
-    lng: -58.436704,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-07',
-    name: 'Av. Corrientes y Scalabrini Ortiz',
-    lat: -34.599858,
-    lng: -58.440775,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-08',
-    name: 'Chacarita / Estación Federico Lacroze',
-    lat: -34.587089,
-    lng: -58.454842,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-09',
-    name: 'Barrancas de Belgrano (Cabecera Norte)',
-    lat: -34.558754,
-    lng: -58.449503,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-10',
-    name: 'Barrancas de Belgrano (Salida Vuelta)',
-    lat: -34.558394,
-    lng: -58.450131,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-11',
-    name: 'Av. Cabildo y Juramento',
-    lat: -34.561988,
-    lng: -58.456644,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-12',
-    name: 'Av. Cabildo y Olleros',
-    lat: -34.564948,
-    lng: -58.454296,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-13',
-    name: 'Av. Álvarez Thomas y Federico Lacroze',
-    lat: -34.58736,
-    lng: -58.455159,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-14',
-    name: 'Av. Corrientes y Dorrego',
-    lat: -34.588978,
-    lng: -58.450409,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-15',
-    name: 'Hospital Italiano',
-    lat: -34.61544,
-    lng: -58.43004,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-16',
-    name: 'Boedo / Castro Barros',
-    lat: -34.627123,
-    lng: -58.42676,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-17',
-    name: 'Hospital Británico / Caseros',
-    lat: -34.635402,
-    lng: -58.396035,
-    lineIds: ['line-65'],
-  },
-  {
-    id: 'stop-65-18',
-    name: 'Plaza Constitución (Llegada Vuelta)',
-    lat: -34.628655,
-    lng: -58.378738,
-    lineIds: ['line-65'],
-  },
-];
+// ─── Líneas Oficiales del Sistema ──────────────────────────────────────
+export const MOCK_LINES: Line[] = DATASET.lineas.map((l) => ({
+  id: l.id,
+  name: l.nombre,
+  shortName: l.numero,
+  color: l.color,
+  direction: l.ramales[0]?.nombre || l.nombre,
+  frequency: l.frecuenciaPicoMin,
+}));
 
-// ─── Alertas Oficiales ────────────────────────────────────────────────
+// ─── Paradas Oficiales Calibradas ─────────────────────────────────────
+export const MOCK_STOPS: Stop[] = Object.values(DATASET.paradas).map((p) => {
+  // Calcular las líneas que pasan por esta parada
+  const lineIds = DATASET.lineas
+    .filter((l) =>
+      l.ramales.some((r) =>
+        r.recorridos.some((rec) => rec.paradas.includes(p.id))
+      )
+    )
+    .map((l) => l.id);
+
+  return {
+    id: p.id,
+    name: p.nombre,
+    lat: p.lat,
+    lng: p.lng,
+    lineIds: lineIds.length > 0 ? lineIds : (p.id.startsWith('stop-65') ? ['line-65'] : ['line-194']),
+  };
+});
+
+// ─── Secuencias Ordenadas de Paradas ──────────────────────────────────
+export const MOCK_LINE_STOPS: Record<string, string[]> = {};
+
+// Registrar por línea (combinando paradas únicas del ramal principal)
+for (const linea of DATASET.lineas) {
+  const principalRamal = linea.ramales[0];
+  if (principalRamal) {
+    const stopsSet = new Set<string>();
+    principalRamal.recorridos.forEach((rec) => rec.paradas.forEach((pId) => stopsSet.add(pId)));
+    MOCK_LINE_STOPS[linea.id] = Array.from(stopsSet);
+  }
+  // Registrar por cada ramal y recorrido
+  for (const ramal of linea.ramales) {
+    const ramalStops = new Set<string>();
+    ramal.recorridos.forEach((rec) => {
+      MOCK_LINE_STOPS[rec.id] = rec.paradas;
+      rec.paradas.forEach((pId) => ramalStops.add(pId));
+    });
+    MOCK_LINE_STOPS[ramal.id] = Array.from(ramalStops);
+  }
+}
+
+// ─── Flota Oficial de Unidades Activas ─────────────────────────────────
+export const MOCK_UNITS: Record<string, string[]> = {
+  'line-65': [
+    '18', '20', '25', '28', '34', '39', '42', '45',
+    '48', '51', '55', '58', '62', '65', '71', '74',
+    '78', '82', '85', '89', '92', '95', '98', '101',
+  ],
+  'line-194': [
+    // Ramal A (Once - Zárate Común x RP 6)
+    '102', '105', '108', '112', '115', '120',
+    // Ramal B (Once - Escobar Común)
+    '302', '305', '308', '312',
+    // Ramal D (Expreso Zárate Directo RN 9)
+    '401', '404', '407',
+    // Ramal E (Expreso Reconvertido Once - Zárate)
+    '451', '454',
+    // Ramal F (Expreso Plaza Italia - Escobar)
+    '502', '505', '508',
+    // Ramal G (Expreso Reconvertido Once - Zárate)
+    '471', '474',
+    // Ramal H (Once - Escobar Expreso Reconvertido)
+    '201', '203', '205', '207', '210', '212', '215', '218',
+    // Ramal I (Diferencial Retiro - Zárate)
+    '601', '603'
+  ],
+};
+
+// ─── Alertas Oficiales de Servicio ────────────────────────────────────
 export const MOCK_ALERTS: Alert[] = [
   {
     id: 'alert-65-001',
@@ -182,24 +151,14 @@ export const MOCK_ALERTS: Alert[] = [
     timestamp: Date.now() - 1000 * 60 * 10,
     since: '08:00',
   },
+  {
+    id: 'alert-194-001',
+    lineId: 'line-194',
+    type: 'route_change',
+    title: 'Servicio Expreso y Común en Operación',
+    description: 'Línea 194 operando con 6 ramales activos en corredor Panamericana y Ruta 9.',
+    severity: 'amber',
+    timestamp: Date.now() - 1000 * 60 * 5,
+    since: '05:00',
+  },
 ];
-
-// ─── Flota Oficial de 24 Unidades Activas Simultáneas ─────────────────
-export const MOCK_UNITS: Record<string, string[]> = {
-  'line-65': [
-    '18', '20', '25', '28', '34', '39', '42', '45',
-    '48', '51', '55', '58', '62', '65', '71', '74',
-    '78', '82', '85', '89', '92', '95', '98', '101',
-  ],
-};
-
-// ─── Secuencia Ordenada de Paradas para RouteTimeline ─────────────────
-export const MOCK_LINE_STOPS: Record<string, string[]> = {
-  'line-65': [
-    'stop-65-01', 'stop-65-02', 'stop-65-03', 'stop-65-04',
-    'stop-65-05', 'stop-65-06', 'stop-65-07', 'stop-65-08',
-    'stop-65-09', 'stop-65-10', 'stop-65-11', 'stop-65-12',
-    'stop-65-13', 'stop-65-14', 'stop-65-15', 'stop-65-16',
-    'stop-65-17', 'stop-65-18',
-  ],
-};

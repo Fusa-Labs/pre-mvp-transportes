@@ -44,7 +44,7 @@ import {
 } from '@/lib/map/vehicle-sprites';
 import { isIsoFlipped, isoBillboardRotation, shadowRotation } from '@/lib/map/vehicle-billboard';
 import { headingDelta, nextSteerBucket, smoothSteerRate } from '@/lib/map/vehicle-steer';
-import { MOCK_ROUTES, MOCK_LINES, MOCK_STOPS } from '@/mock/data';
+import { MOCK_ROUTES, MOCK_LINES, MOCK_STOPS, MOCK_LINE_STOPS, RAMAL_COLORS, DATASET } from '@/mock/data';
 import {
   URBAN_ICON_TYPES,
   SIGNAL_MIN_ZOOM,
@@ -183,33 +183,14 @@ const distM = (a: [number, number], b: [number, number]) => {
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
-const ROUTE_STOPS: RouteStop[] = (() => {
-  const out: RouteStop[] = [];
-  for (const [lineId, coords] of Object.entries(MOCK_ROUTES)) {
-    if (lineId === 'line-65-ida' || lineId === 'line-65-vuelta') continue;
-    const first = coords[0];
-    if (!first) continue;
-    out.push({ lineId, name: '', lng: first[0], lat: first[1] });
-    let acc = 0;
-    let prev = first;
-    for (let i = 1; i < coords.length; i++) {
-      const c = coords[i];
-      acc += distM(prev, c);
-      if (acc >= 400) {
-        acc = 0;
-        let bestD = Infinity;
-        let bestName = '';
-        for (const s of MOCK_STOPS) {
-          const d = distM(c, [s.lng, s.lat]);
-          if (d < bestD) { bestD = d; bestName = s.name; }
-        }
-        out.push({ lineId, name: bestD <= 400 ? bestName : '', lng: c[0], lat: c[1] });
-      }
-      prev = c;
-    }
-  }
-  return out;
-})();
+const ROUTE_STOPS: RouteStop[] = MOCK_STOPS.flatMap((s) =>
+  s.lineIds.map((lineId) => ({
+    lineId,
+    name: s.name,
+    lng: s.lng,
+    lat: s.lat,
+  }))
+);
 
 /**
  * Proveedor de tiles vectoriales: CARTO (gratis, sin API key).
@@ -285,6 +266,33 @@ function svgToImageData(svg: string, size = 96, height = size): Promise<ImageDat
   });
 }
 
+function createStopPopupCardHtml(
+  name: string,
+  lineNumbers: string,
+  badgeColor: string,
+  eta: string,
+): string {
+  return `
+    <div style="padding: 7px 11px; min-width: 165px; font-family: var(--font-inter, Inter), system-ui, sans-serif; background: #ffffff; color: #141414; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 4px 16px rgba(0,0,0,0.12); cursor: pointer; user-select: none;" title="Hacé clic para cerrar">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+        <div style="font-weight: 700; font-size: 12px; line-height: 1.25; color: #0f172a;">
+          ${name}
+        </div>
+        <span style="font-size: 10px; color: #94a3b8; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: #f1f5f9; flex-shrink: 0;">✕</span>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f1f5f9; padding-top: 4px;">
+        <span style="font-weight: 650; font-size: 10px; color: ${badgeColor}; display: inline-flex; align-items: center; gap: 4px;">
+          <span style="width: 6px; height: 6px; border-radius: 9999px; background: ${badgeColor}; display: inline-block;"></span>
+          Línea ${lineNumbers}
+        </span>
+        <span style="font-weight: 700; font-size: 11px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; padding: 1px 7px; border-radius: 9999px;">
+          ${eta}
+        </span>
+      </div>
+    </div>
+  `;
+}
+
 export function MapCanvas({
   positions,
   highlightLines = [],
@@ -315,6 +323,7 @@ export function MapCanvas({
   const positionsRef = useRef(positions);
   const highlightRef = useRef(highlightLines);
   const selectedRef = useRef(selectedKey);
+  const selectedStopIdRef = useRef<string | null>(selectedStopId);
   const cameraModeRef = useRef(cameraMode);
   const cameraBottomPaddingRef = useRef(cameraBottomPadding);
   const cameraModeHandlerRef = useRef(onCameraModeChange);
@@ -343,8 +352,9 @@ export function MapCanvas({
     stopSelectHandlerRef.current = onStopSelect;
   }, [onStopSelect]);
 
-  // Cinemática suave hacia la parada seleccionada + render de etiqueta con arribo en tiempo real
+  // Cinemática suave hacia la parada seleccionada + render de etiqueta descartable
   useEffect(() => {
+    selectedStopIdRef.current = selectedStopId;
     if (!selectedStopId) {
       if (stopPopupRef.current) {
         stopPopupRef.current.remove();
@@ -366,40 +376,44 @@ export function MapCanvas({
 
     const llegadas = TransportService.getLlegadasPorParada(stop.id, positionsRef.current);
     const prox = llegadas[0];
-    const etaText = prox ? prox.displayLabel : 'Cada 5 min';
+    const etaText = prox?.displayLabel || 'Cada 5 min';
     const isVuelta = stop.id.includes('stop-65-1') && stop.id !== 'stop-65-01';
-    const lineBadgeColor = isVuelta ? '#EF4444' : '#0EA5E9';
+    const stopLines = ('lineIds' in stop && stop.lineIds && (stop.lineIds as string[]).length > 0)
+      ? (stop.lineIds as string[]).map((id: string) => id.replace('line-', '')).join(', ')
+      : (stop.id.startsWith('stop-65') ? '65' : '194');
+    const lineBadgeColor = stop.id.startsWith('stop-65')
+      ? (isVuelta ? '#EA580C' : '#0284C7')
+      : '#16A34A';
 
     if (!stopPopupRef.current) {
       stopPopupRef.current = new maplibregl.Popup({
         closeButton: true,
-        closeOnClick: false,
+        closeOnClick: true,
         offset: 14,
         className: 'rutaba-stop-popup',
       });
+      stopPopupRef.current.on('close', () => {
+        stopSelectHandlerRef.current?.('');
+      });
     }
 
-    const stopName = 'name' in stop ? stop.name : (stop as { nombre: string }).nombre;
+    const stopName = ('name' in stop ? stop.name : (stop as { nombre?: string }).nombre) || 'Parada';
 
     stopPopupRef.current
       .setLngLat([stop.lng, stop.lat])
-      .setHTML(`
-        <div style="padding: 6px 10px; min-width: 160px; font-family: var(--font-inter, Inter), system-ui, sans-serif; background: #ffffff; color: #141414; border-radius: 16px; border: 1px solid #e0e0e0; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
-          <div style="font-weight: 650; font-size: 12px; line-height: 1.25; color: #141414; margin-bottom: 4px;">
-            ${stopName}
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f0f0f0; padding-top: 4px;">
-            <span style="font-weight: 600; font-size: 10px; color: ${lineBadgeColor}; display: inline-flex; align-items: center; gap: 4px;">
-              <span style="width: 6px; height: 6px; border-radius: 9999px; background: ${lineBadgeColor}; display: inline-block;"></span>
-              Línea 65
-            </span>
-            <span style="font-weight: 700; font-size: 11px; color: #141414; background: #f3f3f3; border: 1px solid #e0e0e0; padding: 1px 8px; border-radius: 9999px;">
-              ${etaText}
-            </span>
-          </div>
-        </div>
-      `)
+      .setHTML(createStopPopupCardHtml(stopName, stopLines, lineBadgeColor, etaText))
       .addTo(map);
+
+    // Clic sobre la etiqueta descarta el popup inmediatamente
+    const popupElem = stopPopupRef.current.getElement();
+    if (popupElem) {
+      popupElem.style.cursor = 'pointer';
+      popupElem.onclick = (e) => {
+        e.stopPropagation();
+        stopPopupRef.current?.remove();
+        stopSelectHandlerRef.current?.('');
+      };
+    }
   }, [selectedStopId]);
 
   // Cursor crosshair + refs del handler mientras el planificador espera
@@ -491,7 +505,7 @@ export function MapCanvas({
     // ÚNICA posición renderizada que consumen símbolo, cámara y trail.
     const motionMap = new Map<string, VehicleMotion>();
     const currentMap = new Map<string, Live>();
-    const metaMap = new Map<string, { lineId: string; unitId: string; direction?: 'ida' | 'vuelta' }>();
+    const metaMap = new Map<string, { lineId: string; ramalId?: string; unitId: string; direction?: 'ida' | 'vuelta' }>();
     // Rigging del eje delantero (adaptación del spec Tipo D): la derivada
     // del heading por frame se suaviza y bucketea (−1 | 0 | 1); el bucket
     // elige el sprite iso pre-bakeado vía icon-image (match). Sin writes
@@ -522,14 +536,20 @@ export function MapCanvas({
 
     const buildFeatures = () => {
       const features = [];
-      // El bearing de la cámara no es accesible desde expresiones MapLibre:
-      // se publica por feature para que el billboard isométrico rote según
-      // la vista vigente (buildFeatures corre por frame en la ventana de
-      // animación, así que sale gratis).
       const camBearing = map.getBearing();
+      const active = highlightRef.current;
+      const hlSet = active && active.length > 0 ? new Set(active) : null;
+
       for (const [key, pos] of currentMap) {
         const m = metaMap.get(key);
         if (!m) continue;
+
+        // Filtrado estricto por línea o ramal activo
+        if (hlSet && !hlSet.has('all')) {
+          const isLineMatch = hlSet.has(m.lineId);
+          const isRamalMatch = m.ramalId ? hlSet.has(m.ramalId) : false;
+          if (!isLineMatch && !isRamalMatch) continue;
+        }
         const dirSuffix = m.direction ? `-${m.direction}` : '';
         const steer = steerBucketMap.get(key) ?? 0;
         const flipped = isIsoFlipped(pos.heading, camBearing);
@@ -676,7 +696,7 @@ export function MapCanvas({
           speed: pos.speed,
           timestamp: pos.timestamp,
         });
-        metaMap.set(key, { lineId: pos.lineId, unitId: pos.unitId, direction: pos.direction });
+        metaMap.set(key, { lineId: pos.lineId, ramalId: pos.ramalId, unitId: pos.unitId, direction: pos.direction });
       }
       activeKeys = nextKeys;
       tickStart = performance.now();
@@ -937,28 +957,9 @@ export function MapCanvas({
       map.setPaintProperty('route-flow-head', 'line-dasharray', DASH_HEAD[phase]!);
       map.setPaintProperty('route-flow-tail', 'line-dasharray', DASH_TAIL[phase]!);
     };
-    // Fade-in de la corriente al ganar foco (la transitions declaradas
-    // en paint suavizan la entrada — solo escribimos el target).
-    const startFlow = () => {
-      lastFlowPhase = -1;
-      if (map.getLayer('route-flow-head')) {
-        if (reduceMotionRef.current) {
-          // reduced motion: dash congelado (mismo lenguaje, cero movimiento)
-          map.setPaintProperty('route-flow-head', 'line-dasharray', [0, 0, 3, 9]);
-          map.setPaintProperty('route-flow-tail', 'line-dasharray', [0, 7, 5, 0]);
-        }
-        map.setPaintProperty('route-flow-head', 'line-opacity', reduceMotionRef.current ? 0.5 : 0.95);
-        map.setPaintProperty('route-flow-tail', 'line-opacity', reduceMotionRef.current ? 0.2 : 0.32);
-      }
-    };
-    const stopFlow = () => {
-      // Guard estricto: puede correr desde el cleanup o el effect de
-      // reduced-motion antes de que installOverlays cree las capas
-      // (crash 'reading getLayer' de la sesión anterior).
-      if (disposed || !map.getLayer('route-flow-head')) return;
-      map.setPaintProperty('route-flow-head', 'line-opacity', 0);
-      map.setPaintProperty('route-flow-tail', 'line-opacity', 0);
-    };
+    // Animación de flujo desactivada temporalmente a pedido del usuario (sin línea blanca segmentada)
+    const startFlow = () => {};
+    const stopFlow = () => {};
 
     // ─── Pulso de ruta: Kick + Breathe (spec #861) ─────────
     // RAF propio: solo corre con UNA línea en foco y pestaña visible.
@@ -1041,7 +1042,12 @@ export function MapCanvas({
       const active = highlightRef.current;
       const routeFilter = (
         active.length > 0
-          ? ['in', ['get', 'lineId'], ['literal', active]]
+          ? [
+              'any',
+              ['in', ['get', 'lineId'], ['literal', active]],
+              ['in', ['get', 'ramalId'], ['literal', active]],
+              ['in', ['get', 'recorridoId'], ['literal', active]],
+            ]
           : ['==', ['get', 'lineId'], '__ninguna__']
       ) as never;
       for (const prefix of ['route-casing', 'route-line', 'route-flow-head', 'route-flow-tail', 'route-arrows', 'route-halo-a', 'route-halo-b']) {
@@ -1063,19 +1069,106 @@ export function MapCanvas({
         stopPulse();
       }
 
-      // Paradas: solo las de las líneas resaltadas
-      const stopSrc = map.getSource('route-stops') as maplibregl.GeoJSONSource | undefined;
+      // Encuadre suave sobre el recorrido completo de la línea o ramal seleccionados (evita saltar a paradas random)
+      if (active && active.length === 1 && active[0] !== 'all' && cameraModeRef.current === 'overview') {
+        const activeKey = active[0];
+        let routeCoords: [number, number][] = [];
+        if (MOCK_ROUTES[activeKey] && MOCK_ROUTES[activeKey].length > 0) {
+          routeCoords = MOCK_ROUTES[activeKey];
+        } else {
+          const lineaObj = DATASET.lineas.find((l) => l.id === activeKey);
+          if (lineaObj) {
+            routeCoords = lineaObj.ramales.flatMap((r) => r.recorridos.flatMap((rec) => rec.coordenadas));
+          } else {
+            for (const l of DATASET.lineas) {
+              const r = l.ramales.find((ram) => ram.id === activeKey);
+              if (r) {
+                routeCoords = r.recorridos.flatMap((rec) => rec.coordenadas);
+                break;
+              }
+            }
+          }
+        }
+        if (routeCoords.length > 0) {
+          const lons = routeCoords.map((c) => c[0]);
+          const lats = routeCoords.map((c) => c[1]);
+          map.fitBounds(
+            [
+              [Math.min(...lons), Math.min(...lats)],
+              [Math.max(...lons), Math.max(...lats)],
+            ],
+            {
+              padding: { top: 90, bottom: cameraBottomPaddingRef.current + 70, left: 65, right: 65 },
+              duration: 900,
+              maxZoom: 14.5,
+              essential: true,
+            },
+          );
+        }
+      }
+
+      // Paradas: solo las de las líneas o ramales resaltados
+      const stopSrc = map.getSource('stops') as maplibregl.GeoJSONSource | undefined;
       if (stopSrc) {
-        const hl = new Set(highlightRef.current);
+        const active = highlightRef.current;
+        const hlSet = active && active.length > 0 ? new Set(active) : null;
+
+        let activeStopIds: Set<string>;
+
+        if (!hlSet || hlSet.has('all')) {
+          activeStopIds = new Set(Object.keys(DATASET.paradas));
+        } else {
+          activeStopIds = new Set<string>();
+          for (const key of hlSet) {
+            // Si es un ramal puntual (ej: 'ramal-194-a', 'ramal-194-h', 'ramal-65-troncal')
+            if (MOCK_LINE_STOPS[key]) {
+              MOCK_LINE_STOPS[key]!.forEach((pId) => activeStopIds.add(pId));
+            } else {
+              // Si es una línea completa (ej: 'line-194' o 'line-65')
+              const lineaObj = DATASET.lineas.find((l) => l.id === key);
+              if (lineaObj) {
+                lineaObj.ramales.forEach((r) => {
+                  r.recorridos.forEach((rec) => {
+                    rec.paradas.forEach((pId) => activeStopIds.add(pId));
+                  });
+                });
+              }
+            }
+          }
+        }
+
+        const filteredFeatures = Object.values(DATASET.paradas)
+          .filter((p) => activeStopIds.has(p.id))
+          .map((p) => {
+            let stopColor = '#101D3D';
+            if (hlSet && hlSet.size === 1) {
+              const activeKey = Array.from(hlSet)[0]!;
+              stopColor = RAMAL_COLORS[activeKey] || LINE_COLORS[activeKey] || (p.id.startsWith('stop-65') ? '#0284C7' : '#16A34A');
+            } else if (p.id.startsWith('stop-65')) {
+              stopColor = '#0284C7';
+            } else {
+              stopColor = '#16A34A';
+            }
+
+            return {
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] as [number, number] },
+              properties: {
+                id: p.id,
+                name: p.nombre,
+                color: stopColor,
+              },
+            };
+          });
+
         stopSrc.setData({
           type: 'FeatureCollection',
-          features: ROUTE_STOPS.filter((s) => hl.has(s.lineId)).map((s) => ({
-            type: 'Feature' as const,
-            geometry: { type: 'Point' as const, coordinates: [s.lng, s.lat] as [number, number] },
-            properties: { lineId: s.lineId, name: s.name, color: LINE_COLORS[s.lineId] ?? '#101D3D' },
-          })),
+          features: filteredFeatures,
         });
       }
+
+      // Refrescar vehículos de forma inmediata ante cambio de línea/ramal
+      refreshVehicles();
     };
 
     applyRef.current = applyHighlight;
@@ -1087,9 +1180,13 @@ export function MapCanvas({
     // sobreviven al swap de estilo porque se resuelven por id al
     // dispararse, y las capas se vuelven a crear con los mismos ids.
     const stopPopup = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      offset: 12,
+      closeButton: true,
+      closeOnClick: true,
+      offset: 14,
+      className: 'rutaba-stop-popup',
+    });
+    stopPopup.on('close', () => {
+      stopSelectHandlerRef.current?.('');
     });
     stopPopupRef.current = stopPopup;
 
@@ -1102,33 +1199,36 @@ export function MapCanvas({
       const stopName = String(f.properties?.name ?? 'Parada');
       const llegadas = TransportService.getLlegadasPorParada(stopId, positionsRef.current);
       const prox = llegadas[0];
-      const etaText = prox ? prox.displayLabel : 'Cada 5 min';
+      const etaText = prox?.displayLabel || 'Cada 5 min';
       const isVuelta = stopId.includes('stop-65-1') && stopId !== 'stop-65-01';
-      const lineBadgeColor = isVuelta ? '#EF4444' : '#0EA5E9';
+      const stopObj = MOCK_STOPS.find((s) => s.id === stopId) || DATASET.paradas[stopId];
+      const stopLines = stopObj && 'lineIds' in stopObj && (stopObj.lineIds as string[])?.length > 0
+        ? (stopObj.lineIds as string[]).map((id: string) => id.replace('line-', '')).join(', ')
+        : (stopId.startsWith('stop-65') ? '65' : '194');
+      const lineBadgeColor = stopId.startsWith('stop-65')
+        ? (isVuelta ? '#EA580C' : '#0284C7')
+        : '#16A34A';
 
       stopPopup
         .setLngLat(coords)
-        .setHTML(`
-          <div style="padding: 5px 7px; min-width: 155px; font-family: system-ui, -apple-system, sans-serif;">
-            <div style="font-weight: 800; font-size: 12px; line-height: 1.25; color: #0f172a; margin-bottom: 4px;">
-              ${stopName}
-            </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f1f5f9; padding-top: 4px;">
-              <span style="font-weight: 700; font-size: 10px; color: ${lineBadgeColor}; display: inline-flex; align-items: center; gap: 3px;">
-                <span style="width: 6px; height: 6px; border-radius: 50%; background: ${lineBadgeColor}; display: inline-block;"></span>
-                Línea 65
-              </span>
-              <span style="font-weight: 800; font-size: 11px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 9999px;">
-                ${etaText}
-              </span>
-            </div>
-          </div>
-        `)
+        .setHTML(createStopPopupCardHtml(stopName, stopLines, lineBadgeColor, etaText))
         .addTo(map);
+
+      const elem = stopPopup.getElement();
+      if (elem) {
+        elem.style.cursor = 'pointer';
+        elem.onclick = (ev) => {
+          ev.stopPropagation();
+          stopPopup.remove();
+          stopSelectHandlerRef.current?.('');
+        };
+      }
     });
     map.on('mouseleave', 'stops', () => {
       map.getCanvas().style.cursor = '';
-      stopPopup.remove();
+      if (!selectedStopIdRef.current) {
+        stopPopup.remove();
+      }
     });
     const interactiveBusLayers = ['buses-badge', 'buses', 'buses-iso'];
     for (const layer of interactiveBusLayers) {
@@ -1179,6 +1279,13 @@ export function MapCanvas({
         if (stopFeats.length > 0) {
           const stopId = String(stopFeats[0]?.properties?.id ?? '');
           if (stopId) {
+            // Si se hace clic en la misma parada ya seleccionada, deseleccionar
+            if (selectedStopIdRef.current === stopId) {
+              stopPopup.remove();
+              stopSelectHandlerRef.current?.('');
+              return;
+            }
+
             const coords = (stopFeats[0].geometry as any).coordinates;
             // Cinemática de zoom
             map.easeTo({
@@ -1193,29 +1300,30 @@ export function MapCanvas({
             const stopName = String(stopFeats[0]?.properties?.name ?? 'Parada');
             const llegadas = TransportService.getLlegadasPorParada(stopId, positionsRef.current);
             const prox = llegadas[0];
-            const etaText = prox ? prox.displayLabel : 'Cada 5 min';
+            const etaText = prox?.displayLabel || 'Cada 5 min';
             const isVuelta = stopId.includes('stop-65-1') && stopId !== 'stop-65-01';
-            const lineBadgeColor = isVuelta ? '#EF4444' : '#0EA5E9';
+            const stopObj = MOCK_STOPS.find((s) => s.id === stopId) || DATASET.paradas[stopId];
+            const stopLines = stopObj && 'lineIds' in stopObj && (stopObj.lineIds as string[])?.length > 0
+              ? (stopObj.lineIds as string[]).map((id: string) => id.replace('line-', '')).join(', ')
+              : (stopId.startsWith('stop-65') ? '65' : '194');
+            const lineBadgeColor = stopId.startsWith('stop-65')
+              ? (isVuelta ? '#EA580C' : '#0284C7')
+              : '#16A34A';
 
             stopPopup
               .setLngLat(coords)
-              .setHTML(`
-                <div style="padding: 5px 7px; min-width: 155px; font-family: system-ui, -apple-system, sans-serif;">
-                  <div style="font-weight: 800; font-size: 12px; line-height: 1.25; color: #0f172a; margin-bottom: 4px;">
-                    ${stopName}
-                  </div>
-                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f1f5f9; padding-top: 4px;">
-                    <span style="font-weight: 700; font-size: 10px; color: ${lineBadgeColor}; display: inline-flex; align-items: center; gap: 3px;">
-                      <span style="width: 6px; height: 6px; border-radius: 50%; background: ${lineBadgeColor}; display: inline-block;"></span>
-                      Línea 65
-                    </span>
-                    <span style="font-weight: 800; font-size: 11px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 9999px;">
-                      ${etaText}
-                    </span>
-                  </div>
-                </div>
-              `)
+              .setHTML(createStopPopupCardHtml(stopName, stopLines, lineBadgeColor, etaText))
               .addTo(map);
+
+            const elem = stopPopup.getElement();
+            if (elem) {
+              elem.style.cursor = 'pointer';
+              elem.onclick = (ev) => {
+                ev.stopPropagation();
+                stopPopup.remove();
+                stopSelectHandlerRef.current?.('');
+              };
+            }
 
             stopSelectHandlerRef.current?.(stopId);
             return;
@@ -1236,6 +1344,10 @@ export function MapCanvas({
       const feats = [...unique.values()];
       if (feats.length === 0) {
         selectHandlerRef.current?.(null);
+        if (selectedStopIdRef.current) {
+          stopPopup.remove();
+          stopSelectHandlerRef.current?.('');
+        }
         return;
       }
       let best = feats[0];
@@ -1282,51 +1394,31 @@ export function MapCanvas({
       if (arrowImg && !map.hasImage('route-arrow')) map.addImage('route-arrow', arrowImg, { pixelRatio: 2 });
 
       const routeFeatures = [];
-      // Línea 65 dividida por sentido: Ida en Celeste, Vuelta en Rojo
-      if (MOCK_ROUTES['line-65-ida'] && MOCK_ROUTES['line-65-vuelta']) {
-        routeFeatures.push({
-          type: 'Feature' as const,
-          properties: {
-            lineId: 'line-65',
-            direction: 'ida',
-            color: '#0EA5E9', // Celeste para Ida (Constitución -> Barrancas)
-            colorLight: '#7DD3FC',
-          },
-          geometry: { type: 'LineString' as const, coordinates: MOCK_ROUTES['line-65-ida'] },
-        });
-        routeFeatures.push({
-          type: 'Feature' as const,
-          properties: {
-            lineId: 'line-65',
-            direction: 'vuelta',
-            color: '#EF4444', // Rojo para Vuelta (Barrancas -> Constitución)
-            colorLight: '#FCA5A5',
-          },
-          geometry: { type: 'LineString' as const, coordinates: MOCK_ROUTES['line-65-vuelta'] },
-        });
-      } else if (MOCK_ROUTES['line-65']) {
-        routeFeatures.push({
-          type: 'Feature' as const,
-          properties: {
-            lineId: 'line-65',
-            color: '#0EA5E9',
-            colorLight: '#7DD3FC',
-          },
-          geometry: { type: 'LineString' as const, coordinates: MOCK_ROUTES['line-65'] },
-        });
-      }
-
-      for (const [lineId, coords] of Object.entries(MOCK_ROUTES)) {
-        if (lineId === 'line-65' || lineId === 'line-65-ida' || lineId === 'line-65-vuelta') continue;
-        routeFeatures.push({
-          type: 'Feature' as const,
-          properties: {
-            lineId,
-            color: LINE_COLORS[lineId] ?? '#1D4ED8',
-            colorLight: LINE_COLOR_LIGHT[lineId] ?? '#93C5FD',
-          },
-          geometry: { type: 'LineString' as const, coordinates: coords },
-        });
+      for (const linea of DATASET.lineas) {
+        for (const ramal of linea.ramales) {
+          for (const rec of ramal.recorridos) {
+            // Colores diferenciados entre ida y vuelta para cada ramal
+            const isVuelta = rec.sentido === 'vuelta';
+            const color = rec.color || (
+              linea.id === 'line-65'
+                ? (isVuelta ? '#EA580C' : '#0284C7')
+                : (isVuelta ? lightenHex(ramal.color || linea.color, 0.45) : (ramal.color || linea.color))
+            );
+            routeFeatures.push({
+              type: 'Feature' as const,
+              properties: {
+                lineId: linea.id,
+                ramalId: ramal.id,
+                recorridoId: rec.id,
+                ramalNombre: ramal.nombre,
+                direction: rec.sentido,
+                color,
+                colorLight: lightenHex(color),
+              },
+              geometry: { type: 'LineString' as const, coordinates: rec.coordenadas },
+            });
+          }
+        }
       }
 
       map.addSource('routes', {
@@ -1345,6 +1437,12 @@ export function MapCanvas({
           'line-color': dark ? '#E8ECF2' : '#FFFFFF',
           'line-width': ['interpolate', ['linear'], ['zoom'], 13, 6, 15.5, 7.8, 18, 10],
           'line-opacity': 0.9,
+          'line-offset': [
+            'interpolate', ['linear'], ['zoom'],
+            10, ['match', ['get', 'direction'], 'ida', 1.2, 'vuelta', 1.2, 0],
+            14, ['match', ['get', 'direction'], 'ida', 2.2, 'vuelta', 2.2, 0],
+            18, ['match', ['get', 'direction'], 'ida', 3.8, 'vuelta', 3.8, 0]
+          ],
         },
       });
       // Pulso de ruta: 2 halos contrafase (Kick + Breathe, spec #861).
@@ -1385,27 +1483,30 @@ export function MapCanvas({
           'line-color': ['get', 'color'],
           'line-width': ['interpolate', ['linear'], ['zoom'], 13, 3.2, 15.5, 4.6, 18, 6.4],
           'line-opacity': 0.96,
+          'line-offset': [
+            'interpolate', ['linear'], ['zoom'],
+            10, ['match', ['get', 'direction'], 'ida', 1.2, 'vuelta', 1.2, 0],
+            14, ['match', ['get', 'direction'], 'ida', 2.2, 'vuelta', 2.2, 0],
+            18, ['match', ['get', 'direction'], 'ida', 3.8, 'vuelta', 3.8, 0]
+          ],
         },
       });
       map.addLayer({
         id: 'route-flow-tail',
         type: 'line',
         source: 'routes',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
         paint: {
           'line-color': ['get', 'colorLight'],
           'line-width': ['interpolate', ['linear'], ['zoom'], 13, 3.8, 15.5, 5.4, 18, 7.4],
           'line-opacity': 0,
-          'line-blur': 3,
-          'line-dasharray': [0, 7, 5, 0],
-          'line-opacity-transition': { duration: 240 },
         },
       });
       map.addLayer({
         id: 'route-flow-head',
         type: 'line',
         source: 'routes',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
         paint: {
           'line-color': '#FFFFFF',
           'line-width': ['interpolate', ['linear'], ['zoom'], 13, 2.4, 15.5, 3.5, 18, 4.8],

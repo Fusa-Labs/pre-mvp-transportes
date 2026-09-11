@@ -3,10 +3,11 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import DynamicMap from "@/components/map/DynamicMap";
 import FloatingSearch from "@/components/ui-shell/FloatingSearch";
+import LineSelectorBar from "@/components/ui-shell/LineSelectorBar";
 import BottomSheetPanel from "@/components/ui-shell/BottomSheetPanel";
 import { TransportService } from "@/lib/services/transport-service";
 import { subscribeToPositions } from "@/mock/live";
-import { MOCK_LINES, MOCK_ROUTES, MOCK_STOPS } from "@/mock/data";
+import { MOCK_LINES, MOCK_ROUTES, MOCK_STOPS, MOCK_LINE_STOPS } from "@/mock/data";
 import { getRouteTrack, stopsAlongRoute, busProgressOn } from "@/lib/map/route-progress";
 import type { VehiclePosition } from "@/lib/data-service";
 import type { CameraMode } from "@/lib/map/camera-controller";
@@ -37,7 +38,8 @@ export default function TransportesAppPage() {
     lng: -58.434711,
   });
   const [selectedLineaId, setSelectedLineaId] = useState<string | null>("line-65");
-  const [selectedParada, setSelectedParada] = useState<Parada | null>(paradas[0] || null);
+  const [selectedRamalId, setSelectedRamalId] = useState<string | null>(null);
+  const [selectedParada, setSelectedParada] = useState<Parada | null>(null);
   const [selectedVehiculo, setSelectedVehiculo] = useState<VehiclePosition | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
 
@@ -64,8 +66,21 @@ export default function TransportesAppPage() {
   }, [selectedLineaId, lineas]);
 
   const highlightLines = useMemo(() => {
-    return selectedLineaId ? [selectedLineaId] : ALL_LINE_IDS;
-  }, [selectedLineaId]);
+    if (selectedRamalId) return [selectedRamalId];
+    if (selectedLineaId) return [selectedLineaId];
+    return ALL_LINE_IDS;
+  }, [selectedLineaId, selectedRamalId]);
+
+  // Filtrado reactivo de posiciones según la línea o ramal activo
+  const filteredPositions = useMemo(() => {
+    if (selectedRamalId) {
+      return positions.filter((p) => p.ramalId === selectedRamalId);
+    }
+    if (selectedLineaId) {
+      return positions.filter((p) => p.lineId === selectedLineaId);
+    }
+    return positions;
+  }, [positions, selectedLineaId, selectedRamalId]);
 
   const selectedKey = useMemo(() => {
     return selectedVehiculo ? `${selectedVehiculo.lineId}-${selectedVehiculo.unitId}` : null;
@@ -73,8 +88,8 @@ export default function TransportesAppPage() {
 
   const llegadas = useMemo(() => {
     if (!selectedParada) return [];
-    return TransportService.getLlegadasPorParada(selectedParada.id, positions);
-  }, [selectedParada, positions]);
+    return TransportService.getLlegadasPorParada(selectedParada.id, filteredPositions);
+  }, [selectedParada, filteredPositions]);
 
   // Cronograma vertical para el colectivo seleccionado
   const timelineStops = useMemo(() => {
@@ -112,18 +127,32 @@ export default function TransportesAppPage() {
   }, []);
 
   const handleSelectStopById = useCallback((stopId: string) => {
+    if (!stopId) {
+      setSelectedParada(null);
+      return;
+    }
     const found = paradas.find((p) => p.id === stopId);
     if (found) {
-      setSelectedParada(found);
+      // Toggle selection: si se toca la misma parada, deseleccionar
+      setSelectedParada((prev) => (prev?.id === stopId ? null : found));
       setSelectedVehiculo(null);
-      setCameraMode("overview");
+    } else {
+      setSelectedParada(null);
     }
   }, [paradas]);
 
   const handleSelectLinea = useCallback((lineaId: string | null) => {
     setSelectedLineaId(lineaId);
+    setSelectedRamalId(null);
     setSelectedVehiculo(null);
+    setSelectedParada(null); // Sin salto a parada random
     setCameraMode("overview");
+  }, []);
+
+  const handleSelectRamal = useCallback((ramalId: string | null) => {
+    setSelectedRamalId(ramalId);
+    setSelectedVehiculo(null);
+    setSelectedParada(null); // Sin salto a parada random
   }, []);
 
   const handleBusSelect = useCallback((pos: VehiclePosition | null) => {
@@ -140,15 +169,16 @@ export default function TransportesAppPage() {
 
   const handleResetCamera = useCallback(() => {
     setSelectedLineaId("line-65");
+    setSelectedRamalId(null);
     setSelectedVehiculo(null);
+    setSelectedParada(null);
     setCameraMode("overview");
-    if (paradas[0]) setSelectedParada(paradas[0]);
-  }, [paradas]);
+  }, []);
 
   return (
     <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-canvas text-foreground touch-manipulation">
       {/* 1. Header Flotante Superior: Safe-Area-Top (Notch / Dynamic Island) */}
-      <div className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col gap-2">
+      <div className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto">
         <FloatingSearch
           lineas={lineas}
           paradas={paradas}
@@ -157,10 +187,19 @@ export default function TransportesAppPage() {
         />
       </div>
 
+      {/* 1.1 Selector Vertical Jerárquico de Líneas y Ramales (Lateral Izquierdo) */}
+      <LineSelectorBar
+        lineas={lineas}
+        selectedLineaId={selectedLineaId}
+        selectedRamalId={selectedRamalId}
+        onSelectLinea={handleSelectLinea}
+        onSelectRamal={handleSelectRamal}
+      />
+
       {/* 2. Canvas de Mapa MapLibre WebGL (Motor Funcional GPU 60fps) */}
       <div className="absolute inset-0 z-0">
         <DynamicMap
-          positions={positions}
+          positions={filteredPositions}
           highlightLines={highlightLines}
           onBusSelect={handleBusSelect}
           onStopSelect={handleSelectStopById}
@@ -224,16 +263,18 @@ export default function TransportesAppPage() {
       {/* 4. Panel Inferior Deslizable con Safe-Area-Bottom (Home Indicator) */}
       <BottomSheetPanel
         selectedLinea={selectedLinea}
+        selectedRamalId={selectedRamalId}
         selectedParada={selectedParada}
         paradas={paradas}
         llegadas={llegadas}
         alertas={alertas}
-        totalVehiculosActivos={positions.length}
-        positions={positions}
+        totalVehiculosActivos={filteredPositions.length}
+        positions={filteredPositions}
         userLocation={userLocation}
         onSelectParada={handleSelectParada}
         onClearSelection={() => {
           setSelectedLineaId(null);
+          setSelectedRamalId(null);
           setSelectedParada(null);
           setSelectedVehiculo(null);
           setCameraMode("overview");

@@ -28,6 +28,7 @@ export type SheetState = "collapsed" | "peek" | "expanded";
 
 interface BottomSheetPanelProps {
   selectedLinea: Linea | null;
+  selectedRamalId?: string | null;
   selectedParada: Parada | null;
   paradas: Parada[];
   llegadas: EstimacionLlegada[];
@@ -53,6 +54,7 @@ interface BottomSheetPanelProps {
  */
 export default function BottomSheetPanel({
   selectedLinea,
+  selectedRamalId,
   selectedParada,
   paradas,
   llegadas,
@@ -88,9 +90,21 @@ export default function BottomSheetPanel({
     return items[0] || null;
   }, [selectedDetailParada, positions]);
 
-  const paradasFiltradas = selectedLinea
-    ? paradas.filter((p) => p.lineasIds.includes(selectedLinea.id))
-    : paradas;
+  const selectedRamal = useMemo(() => {
+    if (!selectedLinea || !selectedRamalId) return null;
+    return selectedLinea.ramalesDetalle?.find((r) => r.id === selectedRamalId) || null;
+  }, [selectedLinea, selectedRamalId]);
+
+  const paradasFiltradas = useMemo(() => {
+    if (!selectedLinea) return paradas;
+    if (selectedRamal) {
+      const ramalStopIds = new Set(
+        selectedRamal.recorridos?.flatMap((rec) => rec.paradas) || []
+      );
+      return paradas.filter((p) => ramalStopIds.has(p.id));
+    }
+    return paradas.filter((p) => p.lineasIds.includes(selectedLinea.id));
+  }, [selectedLinea, selectedRamal, paradas]);
 
   const alertasFiltradas = selectedLinea
     ? alertas.filter((a) => a.lineaId === selectedLinea.id)
@@ -159,7 +173,9 @@ export default function BottomSheetPanel({
                   Línea {selectedLinea.numero}
                 </span>
                 <span className="text-xs font-semibold text-ink truncate">
-                  {selectedLinea.nombre}
+                  {selectedRamal
+                    ? `Ramal ${selectedRamal.codigo} · ${selectedRamal.nombre}`
+                    : selectedLinea.nombre}
                 </span>
               </div>
             ) : selectedParada ? (

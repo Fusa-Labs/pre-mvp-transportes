@@ -5,6 +5,7 @@
 
 export interface VehiclePosition {
   lineId: string;
+  ramalId?: string;
   unitId: string;
   lat: number;
   lng: number;

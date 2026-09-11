@@ -12,10 +12,72 @@ export interface CoordenadaGPS {
 
 export type GpsCoordinate = [number, number]; // [lng, lat] para GeoJSON / MapLibre
 
+export interface ParadaDefinition {
+  id: string;
+  nombre: string;
+  direccion?: string;
+  lat: number;
+  lng: number;
+  conexiones?: {
+    subte?: string[];
+    tren?: string[];
+    metrobus?: boolean;
+  };
+}
+
+export interface RecorridoDefinition {
+  id: string;
+  sentido: "ida" | "vuelta";
+  origen: string;
+  destino: string;
+  descripcion?: string;
+  distanciaKm: number;
+  color?: string;
+  paradas: string[];
+  coordenadas: [number, number][];
+}
+
+export interface RamalDefinition {
+  id: string;
+  codigo: string;
+  nombre: string;
+  cabeceraOrigen: string;
+  cabeceraDestino: string;
+  color: string;
+  textColor?: string;
+  recorridos: RecorridoDefinition[];
+}
+
+export interface LineaDefinition {
+  id: string;
+  numero: string;
+  nombre: string;
+  empresa: string;
+  color: string;
+  textColor: string;
+  frecuenciaPicoMin: number;
+  mensajeEstado?: string;
+  ramales: RamalDefinition[];
+}
+
+export interface TransportNetworkDataset {
+  version: string;
+  updatedAt?: string;
+  descripcion?: string;
+  paradas: Record<string, ParadaDefinition>;
+  lineas: LineaDefinition[];
+}
+
 export interface Ramal {
   id: string;
   nombre: string;
-  sentido: "ida" | "vuelta";
+  codigo?: string;
+  color?: string;
+  textColor?: string;
+  cabeceraOrigen?: string;
+  cabeceraDestino?: string;
+  sentido?: "ida" | "vuelta";
+  recorridos?: Recorrido[];
 }
 
 export interface Linea {
@@ -29,6 +91,7 @@ export interface Linea {
   mensajeEstado?: string;
   frecuenciaPicoMin: number;
   ramales: string[];
+  ramalesDetalle?: RamalDefinition[];
 }
 
 // Alias de dominio en inglés conforme a skill-maqueta-oficial.txt
@@ -54,7 +117,13 @@ export interface Recorrido {
   id: string;
   lineaId: string;
   ramal: string;
+  ramalId?: string;
   sentido: "ida" | "vuelta";
+  origen?: string;
+  destino?: string;
+  descripcion?: string;
+  distanciaKm?: number;
+  paradasIds?: string[];
   coordenadas: [number, number][]; // [lng, lat] GeoJSON coordinates
 }
 
@@ -63,6 +132,7 @@ export type Route = Recorrido;
 export interface VehiculoEnVivo {
   id: string;
   lineaId: string;
+  ramalId?: string;
   interno: string;
   lat: number;
   lng: number;
