@@ -89,9 +89,9 @@ console.log("▶ Ejecutando Suite Exhaustiva de Pruebas del Motor de Viaje (Punt
 {
   console.log("\n[Caso 5] Múltiples alternativas no duplicadas");
   const belgrano = KNOWN_POIS.find((p) => p.name === "Barrancas de Belgrano")!;
-  const constitucion = KNOWN_POIS.find((p) => p.name === "Plaza Constitución")!;
+  const zarate = KNOWN_POIS.find((p) => p.name.includes("Manuel de la Torre"))!;
 
-  const results = TripPlannerService.planTrip(belgrano, constitucion);
+  const results = TripPlannerService.planTrip(belgrano, zarate);
   assert.ok(results.length > 1, "Debe generar más de 1 alternativa cuando existen opciones directas y con combinación");
 
   // Verificar que los IDs y títulos no estén duplicados

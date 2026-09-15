@@ -146,10 +146,11 @@ export default function TransportesAppPage() {
     return tripOptions.find((t: TripOption) => t.id === selectedTripId) || tripOptions[0] || null;
   }, [tripOptions, selectedTripId]);
 
-  // Al cambiar de opción, limpiar el paso seleccionado.
-  useEffect(() => {
-    setSelectedStepId(null);
-  }, [selectedTrip?.id]);
+  // Si cambia el trip, derivar el paso activo asegurando que pertenezca a la opción actual.
+  const activeStepId = useMemo(() => {
+    if (!selectedTrip || !selectedStepId) return null;
+    return selectedTrip.steps.some((s) => s.id === selectedStepId) ? selectedStepId : null;
+  }, [selectedTrip, selectedStepId]);
 
   const effectiveHighlightLines = useMemo(() => {
     if (isTripMode && selectedTrip) {
@@ -180,8 +181,8 @@ export default function TransportesAppPage() {
   const focusRequest: MapFocusRequest | null = useMemo(() => {
     if (!isTripMode || !selectedTrip) return null;
     // Si hay un paso seleccionado, enfocar su geometría en vez del trip entero.
-    if (selectedStepId) {
-      const step = selectedTrip.steps.find((s) => s.id === selectedStepId);
+    if (activeStepId) {
+      const step = selectedTrip.steps.find((s) => s.id === activeStepId);
       const leg = step?.legIndex !== undefined ? selectedTrip.legs[step.legIndex] : undefined;
       const coords = leg?.segmentCoordinates;
       if (coords && coords.length >= 2) {
@@ -195,7 +196,7 @@ export default function TransportesAppPage() {
         // Padding mínimo para que el segmento no quede pegado al borde.
         const padLng = Math.max((maxLng - minLng) * 0.3, 0.004);
         const padLat = Math.max((maxLat - minLat) * 0.3, 0.004);
-        const nonce = `${selectedTrip.id}|${selectedStepId}`.split("").reduce((acc, c) => acc + c.charCodeAt(0), 1);
+        const nonce = `${selectedTrip.id}|${activeStepId}`.split("").reduce((acc, c) => acc + c.charCodeAt(0), 1);
         return {
           bounds: [[minLng - padLng, minLat - padLat], [maxLng + padLng, maxLat + padLat]],
           nonce,
@@ -211,7 +212,7 @@ export default function TransportesAppPage() {
       nonce,
       bottomPadding: 220,
     };
-  }, [isTripMode, selectedTrip, selectedStepId]);
+  }, [isTripMode, selectedTrip, activeStepId]);
 
     const handleStartMapPick = useCallback((target: "origin" | "destination") => {
     setMapPickTarget(target);
@@ -529,7 +530,7 @@ export default function TransportesAppPage() {
               hasPointsSelected={Boolean(originLocation && destinationLocation)}
               originLocation={originLocation}
               destinationLocation={destinationLocation}
-              selectedStepId={selectedStepId}
+              selectedStepId={activeStepId}
               onSelectStep={setSelectedStepId}
             />
           ) : (
