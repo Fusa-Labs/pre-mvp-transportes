@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 
+import { THEME_STORAGE_KEY } from "./theme-constants";
+
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
@@ -14,7 +16,7 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export const THEME_STORAGE_KEY = "amba-transportes-theme";
+export { THEME_STORAGE_KEY };
 
 export function ThemeProvider({
   children,

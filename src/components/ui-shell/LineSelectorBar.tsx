@@ -11,14 +11,14 @@ interface LineSelectorBarProps {
   onSelectRamal?: (ramalId: string | null) => void;
 }
 
-function getRamalLetter(ramal: RamalDefinition): string {
+export function getRamalLetter(ramal: RamalDefinition): string {
   if (ramal.codigo.toLowerCase().includes("troncal")) return "T";
   const match = ramal.codigo.match(/Ramal\s+([A-Z0-9]+)/i);
   if (match && match[1]) return match[1].toUpperCase();
   return ramal.codigo.trim().charAt(0).toUpperCase() || "R";
 }
 
-function getRamalDisplayName(ramal: RamalDefinition): string {
+export function getRamalDisplayName(ramal: RamalDefinition): string {
   const cod = getRamalLetter(ramal);
   const shortNames: Record<string, string> = {
     A: "Once ⇄ Zárate (Común)",
@@ -36,11 +36,10 @@ function getRamalDisplayName(ramal: RamalDefinition): string {
 
 /**
  * Componente modular LineSelectorBar (Rail Vertical a la Izquierda).
- * Disposición vertical con jerarquía visual:
+ * Disposición vertical con jerarquía visual de badges circulares compactos:
  * - Badges de líneas que muestran ÚNICAMENTE el número (ej: 65, 194).
  * - Badges de ramales hijos que muestran ÚNICAMENTE la letra (ej: T, A, B, D, F, H, I).
- * - Al seleccionar un ramal, se despliega el nombre de cabecera al lado de la letra.
- * - Conectores visuales de árbol jerárquico y safe-areas táctiles de 40-44px.
+ * - Borde fino de 1px al seleccionar ramal para máxima elegancia visual.
  */
 export default function LineSelectorBar({
   lineas,
@@ -106,13 +105,12 @@ export default function LineSelectorBar({
               {linea.numero}
             </button>
 
-            {/* Ramales Anidados Jerárquicamente */}
+            {/* Ramales Anidados Jerárquicamente (Solo badges circulares compactos) */}
             {ramales.length > 0 && (
               <div className="ml-5 pl-2.5 border-l-2 border-hairline/80 flex flex-col items-start gap-1.5 py-1.5">
                 {ramales.map((ramal) => {
                   const letter = getRamalLetter(ramal);
                   const isRamalSelected = selectedRamalId === ramal.id;
-                  const displayName = getRamalDisplayName(ramal);
 
                   return (
                     <button
@@ -127,10 +125,10 @@ export default function LineSelectorBar({
                       }}
                       title={`${ramal.codigo}: ${ramal.nombre}`}
                       aria-label={`${ramal.codigo}: ${ramal.nombre}`}
-                      className={`min-h-[30px] rounded-full transition-all flex items-center gap-1.5 touch-manipulation shadow-xs ${
+                      className={`w-7 h-7 rounded-full transition-all flex items-center justify-center touch-manipulation shadow-xs ${
                         isRamalSelected
-                          ? "px-2.5 py-0.5 bg-ink text-canvas font-bold ring-1 ring-ink scale-102"
-                          : "w-7 h-7 justify-center bg-canvas/90 backdrop-blur-md text-ink border border-hairline hover:border-ink/60 hover:bg-canvas-soft"
+                          ? "bg-ink text-canvas font-bold ring-[1px] ring-ink/80 scale-105 z-10"
+                          : "bg-canvas/90 backdrop-blur-md text-ink border border-hairline hover:border-ink/60 hover:bg-canvas-soft"
                       }`}
                     >
                       {/* Letra del ramal con color identificatorio */}
@@ -146,13 +144,6 @@ export default function LineSelectorBar({
                       >
                         {letter}
                       </span>
-
-                      {/* Nombre expandido SOLO cuando está seleccionado */}
-                      {isRamalSelected && (
-                        <span className="whitespace-nowrap pr-1.5 text-[11px] font-semibold tracking-tight animate-in fade-in slide-in-from-left-1 duration-150">
-                          {displayName}
-                        </span>
-                      )}
                     </button>
                   );
                 })}

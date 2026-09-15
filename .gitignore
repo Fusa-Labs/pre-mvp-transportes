@@ -55,3 +55,6 @@ scratch/
 tmp/
 # Local Pi runtime state
 .atl/
+
+# Local Pi state
+.pi/

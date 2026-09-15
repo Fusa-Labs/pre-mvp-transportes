@@ -2,7 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { ThemeProvider, THEME_STORAGE_KEY } from "@/components/theme/ThemeProvider";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { THEME_STORAGE_KEY } from "@/components/theme/theme-constants";
 
 const inter = Inter({
   subsets: ["latin"],
