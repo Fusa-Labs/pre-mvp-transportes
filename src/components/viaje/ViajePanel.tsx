@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Clock, ArrowRight, Footprints, Bus, CheckCircle2, ChevronRight, Layers, X, Info } from "lucide-react";
+import { ArrowRight, Footprints, Bus, ChevronRight, ChevronDown, Layers, X, Info } from "lucide-react";
 import { TripOption, LocationPoint } from "@/types/trip-planner";
 import { TripPlannerService } from "@/lib/services/trip-planner-service";
+import { useDragCollapse } from "@/lib/hooks/use-drag-collapse";
 
 interface ViajePanelProps {
   options: TripOption[];
@@ -41,6 +42,7 @@ export default function ViajePanel({
     };
   }, [options.length, hasPointsSelected, originLocation, destinationLocation]);
   const [activeTab, setActiveTab] = useState<"opciones" | "guia">("opciones");
+  const { collapsed, toggle, handleProps } = useDragCollapse(false);
 
   const selectedTrip = options.find((o) => o.id === selectedOptionId) || options[0] || null;
 
@@ -103,57 +105,77 @@ export default function ViajePanel({
   return (
     <aside
       aria-label="Panel de opciones de viaje"
-      className="fixed bottom-[84px] left-1/2 -translate-x-1/2 z-40 w-[calc(100vw-24px)] max-w-[420px] max-h-[50dvh] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-hidden"
+      className="fixed bottom-[84px] left-1/2 -translate-x-1/2 z-40 w-[calc(100vw-24px)] max-w-[420px] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-hidden transition-[max-height] duration-300"
+      style={{ maxHeight: collapsed ? "76px" : "50dvh" }}
     >
-      {/* Header del Panel: Alternativas vs Guía paso a paso */}
-      <div className="p-3.5 pb-2.5 border-b border-hairline-soft flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-1.5 p-0.5 bg-canvas-soft border border-hairline rounded-full">
+      {/* Grip de arrastre */}
+      <div className="pt-1.5 pb-0.5 flex justify-center shrink-0" aria-hidden="true">
+        <div className="w-9 h-1 rounded-full bg-hairline" />
+      </div>
+      {/* Header: tiempo hero + toggle de vista texto (arrastrable) */}
+      <div
+        className="px-4 pt-2 pb-2 flex items-center justify-between shrink-0 select-none"
+        {...handleProps}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          toggle();
+        }}
+        title={collapsed ? "Expandir panel" : "Contraer panel"}
+      >
+        <div className="flex items-baseline gap-2 min-w-0">
+          {selectedTrip && (
+            <span className="text-lg font-black text-ink tracking-tight tabular-nums">
+              ~{selectedTrip.totalDurationMinutes} min
+            </span>
+          )}
+          <span className="text-xs text-text-muted truncate">
+            {options.length} alternativa{options.length > 1 ? "s" : ""}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab("opciones")}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
-              activeTab === "opciones"
-                ? "bg-canvas text-ink shadow-xs"
-                : "text-text-muted hover:text-ink"
+            className={`px-2 py-1 text-xs font-semibold transition-colors ${
+              activeTab === "opciones" ? "text-ink underline underline-offset-4 decoration-2" : "text-text-muted hover:text-ink"
             }`}
           >
-            {options.length} Alternativa{options.length > 1 ? "s" : ""}
+            Opciones
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("guia")}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
-              activeTab === "guia"
-                ? "bg-canvas text-ink shadow-xs"
-                : "text-text-muted hover:text-ink"
+            className={`px-2 py-1 text-xs font-semibold transition-colors ${
+              activeTab === "guia" ? "text-ink underline underline-offset-4 decoration-2" : "text-text-muted hover:text-ink"
             }`}
           >
-            <span>Guía de Viaje</span>
-            {selectedTrip && (
-              <span className="w-1.5 h-1.5 rounded-full bg-electric-blue" />
-            )}
+            Pasos
           </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {selectedTrip && (
-            <span className="text-[11px] font-bold text-text-muted">
-              {selectedTrip.totalDurationMinutes} min
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggle(); }}
+            className="p-1.5 text-text-muted hover:text-ink transition-colors"
+            title={collapsed ? "Expandir" : "Contraer"}
+            aria-label={collapsed ? "Expandir panel" : "Contraer panel"}
+            aria-expanded={!collapsed}
+          >
+            <ChevronDown className={`w-4 h-4 transition-transform ${collapsed ? "rotate-180" : ""}`} />
+          </button>
           <button
             type="button"
             onClick={onClose}
-            className="w-6 h-6 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink transition-colors"
+            className="p-1.5 text-text-muted hover:text-ink transition-colors"
             title="Cerrar panel de opciones"
             aria-label="Cerrar panel de opciones"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Contenido según la pestaña activa */}
+      {/* Contenido según la pestaña activa (oculto al contraer) */}
+      {!collapsed && (
       <div className="p-3 overflow-y-auto no-scrollbar space-y-2.5 flex-1">
         {activeTab === "opciones" ? (
           <div className="space-y-2">
@@ -164,19 +186,18 @@ export default function ViajePanel({
                 <div
                   key={opt.id}
                   onClick={() => onSelectOption(opt.id)}
-                  className={`p-3 rounded-[20px] border transition-all cursor-pointer select-none active:scale-[0.99] ${
+                  className={`px-3 py-2.5 rounded-[16px] transition-colors cursor-pointer select-none active:scale-[0.99] ${
                     isSelected
-                      ? "bg-canvas border-ink shadow-md ring-1 ring-ink/10"
-                      : "bg-field/50 hover:bg-field border-hairline text-text-muted"
+                      ? "bg-canvas-soft ring-1 ring-ink/15"
+                      : "hover:bg-canvas-soft/60 text-text-muted"
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-black text-ink tracking-tight flex items-center gap-1">
-                        <Clock className="w-4 h-4 text-electric-blue" />
-                        {opt.totalDurationMinutes} min
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-base font-extrabold text-ink tracking-tight tabular-nums">
+                        ~{opt.totalDurationMinutes} min
                       </span>
-                      <span className="text-xs font-semibold text-text-muted">
+                      <span className="text-xs text-text-muted">
                         · {opt.transfersCount === 0 ? "directo" : `${opt.transfersCount} combinación`}
                       </span>
                     </div>
@@ -212,10 +233,9 @@ export default function ViajePanel({
                     {opt.title}
                   </p>
 
-                  <div className="mt-2 pt-2 border-t border-hairline-soft flex items-center justify-between text-[11px]">
-                    <span className="text-text-muted flex items-center gap-1 font-medium">
-                      <Footprints className="w-3.5 h-3.5 text-text-muted" />
-                      {opt.walkDistanceMeters} m ({opt.walkDurationMinutes} min a pie)
+                  <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                    <span className="text-text-muted">
+                      {opt.walkDistanceMeters} m a pie
                     </span>
                     <button
                       type="button"
@@ -224,7 +244,7 @@ export default function ViajePanel({
                         onSelectOption(opt.id);
                         setActiveTab("guia");
                       }}
-                      className="text-xs font-bold text-electric-blue flex items-center gap-0.5 hover:underline"
+                      className="text-xs font-semibold text-text-muted hover:text-ink flex items-center gap-0.5"
                     >
                       Ver pasos
                       <ChevronRight className="w-3.5 h-3.5" />
@@ -259,16 +279,12 @@ export default function ViajePanel({
                   <div className="absolute left-[22px] top-9 bottom-0 w-0.5 bg-hairline -z-0" />
                 )}
 
-                {/* Ícono de tipo de paso + número */}
+                {/* Ícono de tipo de paso + número (lenguaje único, neutro) */}
                 <div className="flex flex-col items-center shrink-0 z-10">
                   <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center border shadow-xs ${
-                      step.type === "walk"
-                        ? "bg-canvas-soft border-hairline text-text-muted"
-                        : step.type === "transfer"
-                        ? "bg-amber-500/10 border-amber-500/30 text-amber-600"
-                        : "bg-electric-blue text-white border-electric-blue"
-                    } ${isStepSelected ? "ring-2 ring-electric-blue ring-offset-1" : ""}`}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center border border-hairline bg-canvas-soft text-ink ${
+                      isStepSelected ? "ring-2 ring-electric-blue ring-offset-1" : ""
+                    }`}
                   >
                     {step.type === "walk" && <Footprints className="w-3.5 h-3.5" />}
                     {step.type === "transfer" && <Layers className="w-3.5 h-3.5" />}
@@ -284,7 +300,7 @@ export default function ViajePanel({
                       {step.description}
                     </p>
                     <span className="text-[10px] font-semibold text-text-muted shrink-0">
-                      {step.durationMinutes} min
+                      ~{step.durationMinutes} min
                     </span>
                   </div>
 
@@ -312,7 +328,6 @@ export default function ViajePanel({
                   {step.type === "walk" && step.distanceMeters !== undefined && step.distanceMeters > 0 && (
                     <p className="text-[10px] text-text-muted font-medium mt-0.5">
                       {step.distanceMeters}m a pie
-                      {tappable ? " · tocá para ver en el mapa" : ""}
                     </p>
                   )}
 
@@ -320,12 +335,6 @@ export default function ViajePanel({
                     <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mt-0.5">
                       Transbordo entre líneas
                       {step.distanceMeters !== undefined && step.distanceMeters > 15 ? ` · ${step.distanceMeters}m a pie` : ""}
-                      {tappable ? " · tocá para ver en el mapa" : ""}
-                    </p>
-                  )}
-                  {step.type === "ride" && tappable && (
-                    <p className="text-[10px] text-electric-blue font-semibold mt-0.5">
-                      Tocá para ver el tramo en el mapa
                     </p>
                   )}
                 </div>
@@ -333,22 +342,22 @@ export default function ViajePanel({
               );
             })}
 
-            <div className="pt-2 flex items-center justify-between border-t border-hairline-soft">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Llegada a destino estimada</span>
-              </div>
+            <div className="pt-2 flex items-center justify-between">
+              <span className="text-xs text-text-muted">
+                Llegada ~{selectedTrip.totalDurationMinutes} min
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab("opciones")}
-                className="text-xs font-bold text-text-muted hover:text-ink"
+                className="text-xs text-text-muted hover:text-ink"
               >
-                Volver a opciones
+                Volver
               </button>
             </div>
           </div>
         )}
       </div>
+      )}
     </aside>
   );
 }

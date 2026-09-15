@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ArrowUpDown, X, Search, Navigation, CornerDownLeft, Check, Crosshair } from "lucide-react";
+import { ArrowUpDown, X, Search, Navigation, CornerDownLeft, ChevronDown, Crosshair } from "lucide-react";
 import { LocationPoint } from "@/types/trip-planner";
 import { TripPlannerService, KNOWN_POIS } from "@/lib/services/trip-planner-service";
+import { useDragCollapse } from "@/lib/hooks/use-drag-collapse";
 
 interface ViajeHeaderProps {
   originLocation: LocationPoint | null;
@@ -33,6 +34,7 @@ export default function ViajeHeader({
   const [activeField, setActiveField] = useState<"origin" | "destination" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const { collapsed, toggle, handleProps } = useDragCollapse(false);
 
   const filteredLocations = TripPlannerService.searchLocations(searchQuery);
 
@@ -126,16 +128,53 @@ export default function ViajeHeader({
     );
   }
 
+  const showCompact = collapsed && originLocation && destinationLocation && !activeField && !mapPickTarget;
+
   return (
     <div className="relative w-full max-w-md mx-auto pointer-events-auto">
+      {/* Vista compacta al contraer: origen → destino en una línea */}
+      {showCompact && (
+        <div
+          className="bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-full pl-4 pr-2 py-2 shadow-md flex items-center gap-2 select-none"
+          {...handleProps}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest("button")) return;
+            toggle();
+          }}
+          title="Expandir"
+        >
+          <span className="w-2 h-2 rounded-full bg-electric-blue shrink-0" />
+          <span className="text-xs font-bold text-ink truncate flex-1">
+            {originLocation?.name} → {destinationLocation?.name}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggle(); }}
+            className="w-7 h-7 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink shrink-0"
+            aria-label="Expandir"
+          >
+            <ChevronDown className="w-3.5 h-3.5 rotate-180" />
+          </button>
+        </div>
+      )}
       {/* Tarjeta principal con campos de Origen y Destino */}
+      {!showCompact && (
       <div className="bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[26px] p-3 shadow-[0_12px_36px_-6px_rgba(0,0,0,0.18)] dark:shadow-[0_14px_40px_-6px_rgba(0,0,0,0.7)] transition-all">
-        <div className="flex items-center justify-between pb-2 mb-2 border-b border-hairline-soft px-1">
+        <div
+          className="flex items-center justify-between pb-2 mb-2 border-b border-hairline-soft px-1 select-none"
+          {...handleProps}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest("button")) return;
+            toggle();
+          }}
+          title={collapsed ? "Expandir" : "Contraer"}
+        >
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-electric-blue animate-pulse" />
             <span className="text-xs font-bold text-ink uppercase tracking-wider">
               Modo Viaje
             </span>
+            <ChevronDown className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsed ? "rotate-180" : ""}`} />
           </div>
           <button
             type="button"
@@ -209,16 +248,9 @@ export default function ViajeHeader({
                     className="flex-1 flex items-center justify-between text-left bg-field/70 hover:bg-field rounded-[16px] px-3 py-1.5 transition-colors group min-w-0"
                   >
                     <div className="truncate pr-2">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-text-muted font-medium block leading-none">
-                          ¿Desde dónde?
-                        </span>
-                        {originLocation && (
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
-                            <Check className="w-2.5 h-2.5" /> Confirmado
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-[10px] text-text-muted font-medium block leading-none">
+                        ¿Desde dónde?
+                      </span>
                       <span className="text-xs font-bold text-ink truncate block mt-0.5">
                         {originLocation?.name || userSimulatedLocationName || "Seleccionar punto de partida"}
                       </span>
@@ -292,16 +324,9 @@ export default function ViajeHeader({
                     }`}
                   >
                     <div className="truncate pr-2">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-text-muted font-medium block leading-none">
-                          ¿A dónde vas?
-                        </span>
-                        {destinationLocation && (
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
-                            <Check className="w-2.5 h-2.5" /> Confirmado
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-[10px] text-text-muted font-medium block leading-none">
+                        ¿A dónde vas?
+                      </span>
                       <span
                         className={`text-xs font-bold truncate block mt-0.5 ${
                           destinationLocation ? "text-ink" : "text-electric-blue font-semibold"
@@ -360,6 +385,7 @@ export default function ViajeHeader({
           </div>
         )}
       </div>
+      )}
 
       {/* Desplegable de búsqueda de ubicaciones cuando un campo está activo */}
       {activeField && (
