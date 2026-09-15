@@ -54,15 +54,16 @@ export default function LiveTransportBubble({
     : alertas;
 
   return (
-    <aside
-      aria-label="Panel de información en vivo de la línea"
-      className="fixed bottom-[84px] left-3 sm:left-auto sm:right-auto sm:left-1/2 sm:-translate-x-1/2 z-40 w-[calc(100vw-24px)] max-w-[410px] max-h-[58dvh] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200"
-    >
-      {/* Puntero triangular tipo burbuja apuntando al botón de Líneas en la navbar */}
-      <div
-        className="absolute -bottom-2 left-[10%] sm:left-8 w-4 h-4 bg-canvas/95 border-r border-b border-hairline rotate-45 pointer-events-none"
-        aria-hidden="true"
-      />
+    <div className="fixed bottom-[88px] inset-x-0 z-40 pointer-events-none flex justify-center px-4 pb-[env(safe-area-inset-bottom,0px)]">
+      <aside
+        aria-label="Panel de información en vivo de la línea"
+        className="pointer-events-auto w-full max-w-[410px] max-h-[58dvh] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col relative animate-in fade-in slide-in-from-bottom-3 duration-200"
+      >
+        {/* Puntero triangular tipo burbuja apuntando al botón de Líneas en la navbar */}
+        <div
+          className="absolute -bottom-2 left-[10%] -translate-x-1/2 w-4 h-4 bg-canvas/95 border-r border-b border-hairline rotate-45 pointer-events-none"
+          aria-hidden="true"
+        />
 
       {/* 1. Header de la Burbuja: Línea y Estado en Vivo */}
       <div className="p-3.5 pb-2.5 border-b border-hairline-soft flex items-center justify-between shrink-0">
@@ -299,5 +300,6 @@ export default function LiveTransportBubble({
 
       </div>
     </aside>
-  );
+  </div>
+);
 }

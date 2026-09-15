@@ -31,6 +31,7 @@ if (typeof window !== 'undefined') {
   maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 }
 import type { VehiclePosition } from '@/lib/data-service';
+import type { TripSegmentItem } from '@/types/trip-planner';
 import { vehicleCameraFrame, type CameraMode } from '@/lib/map/camera-controller';
 import { VehicleMotion } from '@/lib/map/vehicle-motion-engine';
 import { TransportService } from '@/lib/services/transport-service';
@@ -151,6 +152,10 @@ export interface MapCanvasProps {
   plannerPoints?: PlannerMapPoints | null;
   /** Parada más cercana al destino: anillo con pulso animado. */
   plannerPulse?: PlannerMapPulse | null;
+  /** Tramos geométricos recortados exactos del viaje seleccionado en modo Viaje */
+  tripSegments?: TripSegmentItem[] | null;
+  /** IDs de las paradas utilizadas en el viaje activo para aislar en el mapa */
+  tripUsedStopIds?: string[] | null;
   className?: string;
 }
 
@@ -173,15 +178,6 @@ const LINE_SHORT: Record<string, string> = Object.fromEntries(
  * menos de 250m; si no, la parada queda sin etiqueta (solo punto).
  */
 interface RouteStop { lineId: string; name: string; lng: number; lat: number }
-
-const distM = (a: [number, number], b: [number, number]) => {
-  const R = 6371000;
-  const dLat = ((b[1] - a[1]) * Math.PI) / 180;
-  const dLng = ((b[0] - a[0]) * Math.PI) / 180;
-  const h = Math.sin(dLat / 2) ** 2
-    + Math.cos((a[1] * Math.PI) / 180) * Math.cos((b[1] * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-};
 
 const ROUTE_STOPS: RouteStop[] = MOCK_STOPS.flatMap((s) =>
   s.lineIds.map((lineId) => ({
@@ -312,6 +308,8 @@ export function MapCanvas({
   focusRequest = null,
   plannerPoints = null,
   plannerPulse = null,
+  tripSegments = null,
+  tripUsedStopIds = null,
   className,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -343,6 +341,8 @@ export function MapCanvas({
   const pickHandlerRef = useRef(onMapPick);
   const plannerPointsRef = useRef<PlannerMapPoints | null>(plannerPoints);
   const plannerPulseRef = useRef<PlannerMapPulse | null>(plannerPulse);
+  const tripSegmentsRef = useRef<TripSegmentItem[] | null>(tripSegments);
+  const tripUsedStopIdsRef = useRef<string[] | null>(tripUsedStopIds);
   const plannerApplyRef = useRef<() => void>(() => {});
   const pulseControlRef = useRef<{ start: () => void; stop: () => void; isFocused: () => boolean } | null>(
     null,
@@ -431,8 +431,11 @@ export function MapCanvas({
   useEffect(() => {
     plannerPointsRef.current = plannerPoints;
     plannerPulseRef.current = plannerPulse;
+    tripSegmentsRef.current = tripSegments;
+    tripUsedStopIdsRef.current = tripUsedStopIds;
     plannerApplyRef.current();
-  }, [plannerPoints, plannerPulse]);
+    applyRef.current();
+  }, [plannerPoints, plannerPulse, tripSegments, tripUsedStopIds]);
 
   // Fase 3: encuadre del viaje planificado — event-driven por nonce,
   // programa el fitBounds UNA vez (no es un modo de cámara: el usuario
@@ -868,19 +871,40 @@ export function MapCanvas({
         map.setPaintProperty('planner-pulse-ring', 'circle-opacity', 0);
       }
     };
-    plannerApplyRef.current = () => {
-      // Guard anti stale-closure (mismo patrón que setHalo): en el
-      // remount de StrictMode/HMR este ref puede apuntar a la closura
-      // del mapa ANTERIOR (ya removido) — map.getSource sobre un mapa
-      // destruido revienta con this.style undefined.
-      if (disposed || mapRef.current !== map) return;
-      const pointsSrc = map.getSource('planner-points') as maplibregl.GeoJSONSource | undefined;
-      pointsSrc?.setData(plannerPointsData());
-      const pulseSrc = map.getSource('planner-pulse') as maplibregl.GeoJSONSource | undefined;
-      pulseSrc?.setData(plannerPulseData());
-      if (plannerPulseRef.current) startPlannerPulse();
-      else stopPlannerPulse();
-    };
+            const tripSegmentsData = () => {
+          const segs = tripSegmentsRef.current;
+          if (!segs || segs.length === 0) {
+            return { type: 'FeatureCollection' as const, features: [] };
+          }
+          return {
+            type: 'FeatureCollection' as const,
+            features: segs.map((seg, idx) => ({
+              type: 'Feature' as const,
+              id: `trip-seg-${idx}`,
+              geometry: {
+                type: 'LineString' as const,
+                coordinates: seg.coordinates,
+              },
+              properties: {
+                type: seg.type,
+                color: seg.color,
+                isDashed: seg.isDashed ? 1 : 0,
+              },
+            })),
+          };
+        };
+
+        plannerApplyRef.current = () => {
+          if (disposed || mapRef.current !== map) return;
+          const pointsSrc = map.getSource('planner-points') as maplibregl.GeoJSONSource | undefined;
+          pointsSrc?.setData(plannerPointsData());
+          const pulseSrc = map.getSource('planner-pulse') as maplibregl.GeoJSONSource | undefined;
+          pulseSrc?.setData(plannerPulseData());
+          const segsSrc = map.getSource('trip-active-segments') as maplibregl.GeoJSONSource | undefined;
+          segsSrc?.setData(tripSegmentsData());
+          if (plannerPulseRef.current) startPlannerPulse();
+          else stopPlannerPulse();
+        };
 
     // Un gesto manual libera la cámara y habilita el CTA de recentrado.
     const stopFollow = () => {
@@ -1286,7 +1310,8 @@ export function MapCanvas({
               return;
             }
 
-            const coords = (stopFeats[0].geometry as any).coordinates;
+            const geom = stopFeats[0].geometry;
+            const coords: [number, number] = geom.type === 'Point' ? (geom.coordinates as [number, number]) : [0, 0];
             // Cinemática de zoom
             map.easeTo({
               center: [coords[0], coords[1]],

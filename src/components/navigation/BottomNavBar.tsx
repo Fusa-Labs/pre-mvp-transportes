@@ -60,6 +60,14 @@ export default function BottomNavBar({
 }: BottomNavBarProps) {
   const isMapActive = activeTab === "mapa";
 
+  const handleCenterAction = () => {
+    if (onToggleTripMode) {
+      onToggleTripMode();
+    } else {
+      onTabChange("mapa");
+    }
+  };
+
   return (
     <nav
       aria-label="Navegación principal inferior"
@@ -67,7 +75,7 @@ export default function BottomNavBar({
     >
       <div className="pointer-events-auto w-full max-w-[410px] bg-canvas/92 dark:bg-canvas/92 backdrop-blur-xl border border-hairline rounded-full shadow-[0_10px_32px_-4px_rgba(0,0,0,0.14)] dark:shadow-[0_12px_36px_-4px_rgba(0,0,0,0.6)] px-2.5 py-1.5 grid grid-cols-5 items-center relative">
         
-        {/* Slot 1 & 2: Líneas (con apertura del menú de información) y Tus Paradas (Lado Izquierdo) */}
+        {/* Slot 1 & 2: Líneas y Tus Paradas (Lado Izquierdo) */}
         {LEFT_ITEMS.map((item) => {
           const isItemActive = item.id === "lineas" ? isLineMenuOpen : activeTab === item.id;
           const Icon = item.icon;
@@ -112,17 +120,11 @@ export default function BottomNavBar({
           );
         })}
 
-        {/* Slot 3: CENTRO EXACTO (Columna 3 de 5 = 50% Horizontal) -> La Rosa / Mapa y Viaje */}
+        {/* Slot 3: CENTRO EXACTO (Columna 3 de 5 = 50% Horizontal) -> La Rosa / Mapa y Modo Viaje */}
         <div className="flex flex-col items-center justify-center relative">
           <button
             type="button"
-            onClick={() => {
-              if (isMapActive && onToggleTripMode) {
-                onToggleTripMode();
-              } else {
-                onTabChange("mapa");
-              }
-            }}
+            onClick={handleCenterAction}
             title={isTripMode ? "Modo Viaje activo (tocar para alternar)" : "Tocar para iniciar Viaje en el mapa"}
             aria-label={isTripMode ? "Cerrar o alternar modo Viaje" : "Iniciar modo Viaje en el mapa"}
             className={`-mt-7 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl touch-manipulation active:scale-90 group relative ${
@@ -138,9 +140,14 @@ export default function BottomNavBar({
             
             <RoseEmblem
               className={`w-7 h-7 transition-transform duration-300 ${
-                isTripMode ? "text-white scale-110" : isMapActive ? "text-canvas scale-110" : "text-canvas group-hover:scale-110"
+                isTripMode ? "text-white scale-110" : "text-canvas group-hover:scale-110"
               }`}
             />
+
+            {/* Indicador pulsante en modo Viaje */}
+            {isTripMode && (
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-white border-2 border-electric-blue animate-ping" />
+            )}
           </button>
           <span
             className={`text-[10px] mt-0.5 tracking-tight font-bold transition-colors select-none leading-none ${

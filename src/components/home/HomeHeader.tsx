@@ -1,17 +1,15 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useSyncExternalStore } from "react";
 import { Bell } from "lucide-react";
 import { HomeHeaderProps } from "@/types/home-navigation";
 
+const emptySubscribe = () => () => {};
+
 function getDynamicGreeting(): string {
   const hour = new Date().getHours();
-  if (hour >= 6 && hour < 12) {
-    return "Buenos días";
-  }
-  if (hour >= 12 && hour < 20) {
-    return "Buenas tardes";
-  }
+  if (hour >= 6 && hour < 12) return "Buenos días";
+  if (hour >= 12 && hour < 20) return "Buenas tardes";
   return "Buenas noches";
 }
 
@@ -23,7 +21,6 @@ function getFormattedDate(): string {
     month: "long",
   }).format(date);
 
-  // Capitalizar primera letra del día
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
@@ -32,16 +29,22 @@ export default function HomeHeader({
   unreadNotificationsCount = 1,
   onOpenNotifications,
 }: HomeHeaderProps) {
-  const greeting = useMemo(() => getDynamicGreeting(), []);
-  const formattedDate = useMemo(() => getFormattedDate(), []);
+  const isClient = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
+  const greeting = isClient ? getDynamicGreeting() : "¡Buenas!";
+  const formattedDate = isClient ? getFormattedDate() : "";
 
   return (
     <header className="w-full pt-[calc(max(16px,env(safe-area-inset-top))+8px)] pb-4 px-5 flex items-center justify-between bg-canvas/80 backdrop-blur-md sticky top-0 z-30 border-b border-hairline-soft">
       <div className="flex flex-col items-start">
-        <h1 className="text-xl font-extrabold text-ink tracking-tight">
-          {userName ? `¡${greeting}, ${userName}! 👋` : `¡${greeting}! 👋`}
+        <h1 suppressHydrationWarning className="text-xl font-extrabold text-ink tracking-tight">
+          {userName ? `¡${greeting}, ${userName}! 👋` : `${greeting} 👋`}
         </h1>
-        <p className="text-xs font-medium text-text-muted mt-0.5">
+        <p suppressHydrationWarning className="text-xs font-medium text-text-muted mt-0.5 min-h-[1.25rem]">
           {formattedDate}
         </p>
       </div>
