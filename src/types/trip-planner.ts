@@ -81,6 +81,8 @@ export interface TripStep {
   durationMinutes: number;
   distanceMeters?: number;
   description: string;
+  /** Índice en TripOption.legs para tap-to-focus (ausente en pseudo-steps "arrive"). */
+  legIndex?: number;
 }
 
 export interface TripLineChip {

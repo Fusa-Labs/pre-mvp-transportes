@@ -449,6 +449,7 @@ export default function BottomSheetPanel({
                     <StopDetailCard
                       parada={selectedDetailParada}
                       linea={selectedLinea}
+                      selectedRamalId={selectedRamalId}
                       proximoArribo={detailLlegada}
                       onClose={() => setSelectedDetailParada(null)}
                     />

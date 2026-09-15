@@ -21,7 +21,7 @@ const TRANSFER_WAIT_MINUTES = 5;
 const WALK_PERCEPTION_FACTOR = 1.3;
 
 /** Radio máximo de búsqueda de paradas para acceso y egreso a pie (metros) */
-const MAX_ACCESS_WALK_METERS = 1200;
+const MAX_ACCESS_WALK_METERS = 2000;
 
 /** Radio máximo de caminata entre paradas para transbordo intermodal (metros) */
 const MAX_TRANSFER_WALK_METERS = 850;
@@ -53,6 +53,28 @@ export function calculateDistanceMeters(
 export function calculateWalkMinutes(meters: number): number {
   if (meters <= 25) return 0;
   return Math.max(1, Math.ceil(meters / WALKING_METERS_PER_MINUTE));
+}
+
+/**
+ * P1-6: Caché lazy de distancias entre pares de paradas.
+ * PARADAS_MOCK es estático; el loop interno de findTransferTrips recalculaba
+ * el mismo haversine miles de veces por query. Con caché es O(1) amortizado.
+ */
+const STOP_PAIR_DISTANCE_CACHE = new Map<string, number>();
+
+function stopPairKey(aId: string, bId: string): string {
+  return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
+}
+
+function getCachedStopDistance(a: Parada, b: Parada): number {
+  if (a.id === b.id) return 0;
+  const key = stopPairKey(a.id, b.id);
+  let d = STOP_PAIR_DISTANCE_CACHE.get(key);
+  if (d === undefined) {
+    d = calculateDistanceMeters(a, b);
+    STOP_PAIR_DISTANCE_CACHE.set(key, d);
+  }
+  return d;
 }
 
 /**
@@ -101,10 +123,14 @@ export function sliceRouteGeometry(
       [toStop.lng, toStop.lat],
     ];
   } else {
-    const sliced = coords.slice(fromIdx);
+    // P2-7: Proyección inconsistente (fromIdx > toIdx). Ocurre si la
+    // geometría tiene loops o calles paralelas cercanas que confunden al
+    // nearest-vertex. Antes se dibujaba desde fromIdx hasta el FIN de la
+    // ruta (km de geometría incorrecta). Ahora: línea recta honesta entre
+    // paradas. La ruta lógica sigue siendo correcta; solo la geometría
+    // mostrada es simplificada en este edge case.
     return [
       [fromStop.lng, fromStop.lat],
-      ...sliced,
       [toStop.lng, toStop.lat],
     ];
   }
@@ -522,17 +548,66 @@ export class TripPlannerService {
       // Ronda 2: Combinaciones (1 combinación)
       const transferTrips = this.findTransferTrips(origin, destination, originCandidates, destCandidates);
       rawOptions.push(...transferTrips);
+
+      // P1-4, Ronda 3: Doble combinación (2 transbordos).
+      // Solo si hay pocas opciones (evita explosión combinatoria en el
+      // caso común). Con 56 paradas el costo es aceptable como fallback.
+      if (rawOptions.length < 3) {
+        const twoTransferTrips = this.findTwoTransferTrips(origin, destination, originCandidates, destCandidates);
+        rawOptions.push(...twoTransferTrips);
+      }
     }
 
     if (rawOptions.length === 0) {
       return [];
     }
 
-    // Deduplicación y Selección Pareto
-    const deduplicated = this.deduplicateOptions(rawOptions);
-    deduplicated.sort((a, b) => a.generalizedCost - b.generalizedCost);
+    // Vincular steps con legs para tap-to-focus (los "arrive" no tienen leg).
+    // Invariante: cada legs.push es inmediatamente seguido de su steps.push.
+    for (const opt of rawOptions) {
+      let li = 0;
+      for (const step of opt.steps) {
+        if (step.id.startsWith("step-arrive-")) continue;
+        step.legIndex = li++;
+      }
+    }
 
-    return deduplicated.slice(0, 3);
+    // P1-5: Pareto real sobre (transfers, duración, caminata).
+    // 1) Dedup exacto (misma combinación líneas+paradas usadas).
+    // 2) Filtro Pareto: solo no-dominadas.
+    // 3) Orden lexicográfico (transfers, duración) y top-5.
+    const deduplicated = this.deduplicateOptions(rawOptions);
+    const pareto = this.paretoFilter(deduplicated);
+    pareto.sort(
+      (a, b) =>
+        a.transfersCount - b.transfersCount ||
+        a.totalDurationMinutes - b.totalDurationMinutes
+    );
+
+    return pareto.slice(0, 5);
+  }
+
+  /**
+   * P1-5: Filtro de Pareto sobre (transfers, duración total, distancia a pie).
+   * A domina a B si A es mejor-o-igual en los 3 criterios y estrictamente
+   * mejor en al menos uno. Devuelve solo las no-dominadas.
+   */
+  private static paretoFilter(options: TripOption[]): TripOption[] {
+    return options.filter((a) => {
+      for (const b of options) {
+        if (a === b) continue;
+        const bBetterOrEqual =
+          b.transfersCount <= a.transfersCount &&
+          b.totalDurationMinutes <= a.totalDurationMinutes &&
+          b.walkDistanceMeters <= a.walkDistanceMeters;
+        const bStrictlyBetter =
+          b.transfersCount < a.transfersCount ||
+          b.totalDurationMinutes < a.totalDurationMinutes ||
+          b.walkDistanceMeters < a.walkDistanceMeters;
+        if (bBetterOrEqual && bStrictlyBetter) return false; // a dominada
+      }
+      return true;
+    });
   }
 
   private static findDirectTrips(
@@ -553,6 +628,11 @@ export class TripPlannerService {
               const fromIndex = rec.paradas.indexOf(oCand.stop.id);
               const toIndex = rec.paradas.indexOf(dCand.stop.id);
 
+              // P0-1: El orden de índices IMPLICA el sentido declarado.
+              // rec.paradas está ordenado en dirección de rec.sentido por
+              // construcción (ver ESTANDAR-LINEAS-RAMALES.md §2.2).
+              // fromIndex < toIndex ⟺ viaje en dirección rec.sentido.
+              // No inferir sentido por ID (frágil); usar rec.sentido.
               if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
                 const stopCount = toIndex - fromIndex;
                 const intermediateStopIds = rec.paradas.slice(fromIndex, toIndex + 1);
@@ -780,11 +860,13 @@ export class TripPlannerService {
                 if (!tStop1) continue;
 
                 // Línea 2
+                // P0-2: NO bloquear por línea. Dos ramales distintos de la
+                // misma línea SÍ son combinables (ej: 194-A → 194-D).
+                // Solo se bloquea el mismo recorrido exacto (redundante).
                 for (const linea2 of DATASET.lineas) {
-                  if (linea2.id === linea1.id) continue;
-
                   for (const ramal2 of linea2.ramales) {
                     for (const rec2 of ramal2.recorridos) {
+                      if (rec2.id === rec1.id) continue;
                       const idxD = rec2.paradas.indexOf(dCand.stop.id);
                       if (idxD === -1) continue;
 
@@ -793,10 +875,7 @@ export class TripPlannerService {
                         const tStop2 = PARADAS_MOCK.find((p) => p.id === tStopId2);
                         if (!tStop2) continue;
 
-                        const transferDist =
-                          tStopId1 === tStopId2
-                            ? 0
-                            : calculateDistanceMeters(tStop1, tStop2);
+                        const transferDist = getCachedStopDistance(tStop1, tStop2);
 
                         if (transferDist <= MAX_TRANSFER_WALK_METERS) {
                           const stopCount1 = k - idxO;
@@ -1086,8 +1165,8 @@ export class TripPlannerService {
                           ]);
 
                           options.push({
-                            id: `transfer-${linea1.numero}-${linea2.numero}-${tStop1.id}-${rec1.id}-${rec2.id}`,
-                            title: `Combinación · ${linea1.numero} ➔ ${linea2.numero} (en ${tStop1.nombre})`,
+                            id: `transfer-${linea1.numero}-${linea2.numero}-${oCand.stop.id}-${dCand.stop.id}-${tStop1.id}-${rec1.id}-${rec2.id}`,
+                            title: `Combinación · ${linea1.numero} (${ramal1.codigo}) ➔ ${linea2.numero} (${ramal2.codigo}) (en ${tStop1.nombre})`,
                             totalDurationMinutes: totalDuration,
                             transfersCount: 1,
                             walkDurationMinutes: totalWalkMinutes,
@@ -1128,13 +1207,198 @@ export class TripPlannerService {
     return options;
   }
 
+  /**
+   * P1-4: Doble combinación (2 transbordos).
+   * A → L1 → T1 → L2 → T2 → L3 → B.
+   * Solo corre como fallback (cuando 0+1 transfers dan <3 opciones).
+   * Permite intra-línea (distinto recorrido) igual que findTransferTrips.
+   */
+  private static findTwoTransferTrips(
+    origin: LocationPoint,
+    destination: LocationPoint,
+    originCandidates: CandidateStop[],
+    destCandidates: CandidateStop[]
+  ): TripOption[] {
+    const options: TripOption[] = [];
+
+    for (const oCand of originCandidates) {
+      for (const dCand of destCandidates) {
+        if (oCand.stop.id === dCand.stop.id) continue;
+
+        for (const linea1 of DATASET.lineas) {
+          for (const ramal1 of linea1.ramales) {
+            for (const rec1 of ramal1.recorridos) {
+              const idxO = rec1.paradas.indexOf(oCand.stop.id);
+              if (idxO === -1) continue;
+
+              for (let k = idxO + 1; k < rec1.paradas.length; k++) {
+                const tAId = rec1.paradas[k];
+                const tA = PARADAS_MOCK.find((p) => p.id === tAId);
+                if (!tA) continue;
+
+                for (const linea2 of DATASET.lineas) {
+                  for (const ramal2 of linea2.ramales) {
+                    for (const rec2 of ramal2.recorridos) {
+                      if (rec2.id === rec1.id) continue;
+                      const idxT1 = rec2.paradas.indexOf(tAId);
+                      // Transfer 1: misma parada o cercana (≤850m)
+                      // Buscar punto de abordaje en rec2 cercano a tA
+                      let board2Idx = idxT1;
+                      let board2Stop = idxT1 !== -1 ? tA : null;
+                      if (idxT1 === -1) {
+                        // tA no está en rec2: buscar parada cercana en rec2
+                        let bestD = Infinity;
+                        for (let b = 0; b < rec2.paradas.length; b++) {
+                          const bs = PARADAS_MOCK.find((p) => p.id === rec2.paradas[b]);
+                          if (!bs) continue;
+                          const d = getCachedStopDistance(tA, bs);
+                          if (d < bestD && d <= MAX_TRANSFER_WALK_METERS) {
+                            bestD = d;
+                            board2Idx = b;
+                            board2Stop = bs;
+                          }
+                        }
+                        if (!board2Stop) continue;
+                      }
+
+                      for (let m = board2Idx + 1; m < rec2.paradas.length; m++) {
+                        const tCId = rec2.paradas[m];
+                        const tC = PARADAS_MOCK.find((p) => p.id === tCId);
+                        if (!tC) continue;
+
+                        for (const linea3 of DATASET.lineas) {
+                          for (const ramal3 of linea3.ramales) {
+                            for (const rec3 of ramal3.recorridos) {
+                              if (rec3.id === rec2.id || rec3.id === rec1.id) continue;
+                              const idxD = rec3.paradas.indexOf(dCand.stop.id);
+                              if (idxD === -1) continue;
+                              // Transfer 2: buscar abordaje en rec3 cercano a tC
+                              let board3Idx = rec3.paradas.indexOf(tCId);
+                              let board3Stop: Parada | null = board3Idx !== -1 ? tC : null;
+                              if (board3Idx === -1) {
+                                let bestD = Infinity;
+                                for (let b = 0; b < idxD; b++) {
+                                  const bs = PARADAS_MOCK.find((p) => p.id === rec3.paradas[b]);
+                                  if (!bs) continue;
+                                  const d = getCachedStopDistance(tC, bs);
+                                  if (d < bestD && d <= MAX_TRANSFER_WALK_METERS) {
+                                    bestD = d;
+                                    board3Idx = b;
+                                    board3Stop = bs;
+                                  }
+                                }
+                                if (!board3Stop) continue;
+                              }
+                              if (board3Idx >= idxD) continue;
+                              if (!board2Stop || !board3Stop) continue;
+
+                              const t1Dist = board2Stop.id === tA.id ? 0 : getCachedStopDistance(tA, board2Stop);
+                              const t2Dist = board3Stop.id === tC.id ? 0 : getCachedStopDistance(tC, board3Stop);
+                              if (t1Dist > MAX_TRANSFER_WALK_METERS || t2Dist > MAX_TRANSFER_WALK_METERS) continue;
+
+                              // Costos
+                              const s1 = k - idxO;
+                              const s2 = m - board2Idx;
+                              const s3 = idxD - board3Idx;
+                              const r1 = Math.max(3, Math.round(s1 * 2.3));
+                              const r2 = Math.max(3, Math.round(s2 * 2.3));
+                              const r3 = Math.max(3, Math.round(s3 * 2.3));
+                              const t1Walk = calculateWalkMinutes(t1Dist);
+                              const t2Walk = calculateWalkMinutes(t2Dist);
+                              const totalWalkM = oCand.distanceMeters + t1Dist + t2Dist + dCand.distanceMeters;
+                              const totalWalkMin = oCand.walkMinutes + t1Walk + t2Walk + dCand.walkMinutes;
+                              const totalDur = totalWalkMin + r1 + r2 + r3 + TRANSFER_WAIT_MINUTES * 2;
+                              const gCost =
+                                totalWalkMin * WALK_PERCEPTION_FACTOR + r1 + r2 + r3 +
+                                TRANSFER_WAIT_MINUTES * 2 + TRANSFER_PENALTY_MINUTES * 2;
+
+                              const g1 = sliceRouteGeometry(rec1.coordenadas, oCand.stop, tA);
+                              const g2 = sliceRouteGeometry(rec2.coordenadas, board2Stop, tC);
+                              const g3 = sliceRouteGeometry(rec3.coordenadas, board3Stop, dCand.stop);
+
+                              const legs: TripLeg[] = [];
+                              const steps: TripStep[] = [];
+                              const segments: TripSegmentItem[] = [];
+
+                              if (oCand.distanceMeters > 25) {
+                                legs.push({ type: "walk", from: origin, to: { name: oCand.stop.nombre, lat: oCand.stop.lat, lng: oCand.stop.lng, stopId: oCand.stop.id }, distanceMeters: oCand.distanceMeters, durationMinutes: oCand.walkMinutes, description: `Caminar ${oCand.distanceMeters} m hasta ${oCand.stop.nombre}`, segmentCoordinates: [[origin.lng, origin.lat], [oCand.stop.lng, oCand.stop.lat]] });
+                                steps.push({ id: `step-walk-o-${oCand.stop.id}`, type: "walk", fromStopName: origin.name, toStopName: oCand.stop.nombre, toStopId: oCand.stop.id, distanceMeters: oCand.distanceMeters, durationMinutes: oCand.walkMinutes, description: `Caminar ${oCand.distanceMeters} m hasta ${oCand.stop.nombre}` });
+                              }
+                              legs.push({ type: "ride", lineaId: linea1.id, lineaNumero: linea1.numero, lineaColor: linea1.color, lineaTextColor: linea1.textColor, ramalId: ramal1.id, ramalCodigo: ramal1.codigo, ramalNombre: ramal1.nombre, recorridoId: rec1.id, sentido: rec1.sentido, fromStop: oCand.stop, toStop: tA, intermediateStops: [], stopCount: s1, distanceKm: 0, durationMinutes: r1, description: `Tomar Línea ${linea1.numero} (${ramal1.codigo}) hasta ${tA.nombre}`, segmentCoordinates: g1 });
+                              steps.push({ id: `step-ride-1-${linea1.id}`, type: "ride", lineaId: linea1.id, lineaNumero: linea1.numero, lineaColor: linea1.color, lineaTextColor: linea1.textColor, ramalCodigo: ramal1.codigo, ramalNombre: ramal1.nombre, fromStopId: oCand.stop.id, fromStopName: oCand.stop.nombre, toStopId: tA.id, toStopName: tA.nombre, stopCount: s1, durationMinutes: r1, description: `Tomar Línea ${linea1.numero} (${ramal1.codigo}) hasta ${tA.nombre} (${s1} paradas)` });
+                              segments.push({ id: `seg-ride-1-${linea1.id}`, type: "ride", color: linea1.color, isDashed: false, coordinates: g1 });
+
+                              legs.push({ type: "transfer", fromStop: tA, toStop: board2Stop, walkingDistanceMeters: t1Dist, durationMinutes: t1Walk + TRANSFER_WAIT_MINUTES, description: tA.id === board2Stop.id ? `Combinar con Línea ${linea2.numero} en ${tA.nombre}` : `Caminar ${t1Dist} m a ${board2Stop.nombre} y combinar con Línea ${linea2.numero}`, segmentCoordinates: [[tA.lng, tA.lat], [board2Stop.lng, board2Stop.lat]] });
+                              steps.push({ id: `step-t1-${tA.id}`, type: "transfer", fromStopId: tA.id, fromStopName: tA.nombre, toStopId: board2Stop.id, toStopName: board2Stop.nombre, distanceMeters: t1Dist, durationMinutes: t1Walk + TRANSFER_WAIT_MINUTES, description: `Transbordo a Línea ${linea2.numero}` });
+
+                              legs.push({ type: "ride", lineaId: linea2.id, lineaNumero: linea2.numero, lineaColor: linea2.color, lineaTextColor: linea2.textColor, ramalId: ramal2.id, ramalCodigo: ramal2.codigo, ramalNombre: ramal2.nombre, recorridoId: rec2.id, sentido: rec2.sentido, fromStop: board2Stop, toStop: tC, intermediateStops: [], stopCount: s2, distanceKm: 0, durationMinutes: r2, description: `Tomar Línea ${linea2.numero} (${ramal2.codigo}) hasta ${tC.nombre}`, segmentCoordinates: g2 });
+                              steps.push({ id: `step-ride-2-${linea2.id}`, type: "ride", lineaId: linea2.id, lineaNumero: linea2.numero, lineaColor: linea2.color, lineaTextColor: linea2.textColor, ramalCodigo: ramal2.codigo, ramalNombre: ramal2.nombre, fromStopId: board2Stop.id, fromStopName: board2Stop.nombre, toStopId: tC.id, toStopName: tC.nombre, stopCount: s2, durationMinutes: r2, description: `Tomar Línea ${linea2.numero} (${ramal2.codigo}) hasta ${tC.nombre} (${s2} paradas)` });
+                              segments.push({ id: `seg-ride-2-${linea2.id}`, type: "ride", color: linea2.color, isDashed: false, coordinates: g2 });
+
+                              legs.push({ type: "transfer", fromStop: tC, toStop: board3Stop, walkingDistanceMeters: t2Dist, durationMinutes: t2Walk + TRANSFER_WAIT_MINUTES, description: tC.id === board3Stop.id ? `Combinar con Línea ${linea3.numero} en ${tC.nombre}` : `Caminar ${t2Dist} m a ${board3Stop.nombre} y combinar con Línea ${linea3.numero}`, segmentCoordinates: [[tC.lng, tC.lat], [board3Stop.lng, board3Stop.lat]] });
+                              steps.push({ id: `step-t2-${tC.id}`, type: "transfer", fromStopId: tC.id, fromStopName: tC.nombre, toStopId: board3Stop.id, toStopName: board3Stop.nombre, distanceMeters: t2Dist, durationMinutes: t2Walk + TRANSFER_WAIT_MINUTES, description: `Transbordo a Línea ${linea3.numero}` });
+
+                              legs.push({ type: "ride", lineaId: linea3.id, lineaNumero: linea3.numero, lineaColor: linea3.color, lineaTextColor: linea3.textColor, ramalId: ramal3.id, ramalCodigo: ramal3.codigo, ramalNombre: ramal3.nombre, recorridoId: rec3.id, sentido: rec3.sentido, fromStop: board3Stop, toStop: dCand.stop, intermediateStops: [], stopCount: s3, distanceKm: 0, durationMinutes: r3, description: `Tomar Línea ${linea3.numero} (${ramal3.codigo}) hasta ${dCand.stop.nombre}`, segmentCoordinates: g3 });
+                              steps.push({ id: `step-ride-3-${linea3.id}`, type: "ride", lineaId: linea3.id, lineaNumero: linea3.numero, lineaColor: linea3.color, lineaTextColor: linea3.textColor, ramalCodigo: ramal3.codigo, ramalNombre: ramal3.nombre, fromStopId: board3Stop.id, fromStopName: board3Stop.nombre, toStopId: dCand.stop.id, toStopName: dCand.stop.nombre, stopCount: s3, durationMinutes: r3, description: `Tomar Línea ${linea3.numero} (${ramal3.codigo}) hasta ${dCand.stop.nombre} (${s3} paradas)` });
+                              segments.push({ id: `seg-ride-3-${linea3.id}`, type: "ride", color: linea3.color, isDashed: false, coordinates: g3 });
+
+                              if (dCand.distanceMeters > 25) {
+                                legs.push({ type: "walk", from: { name: dCand.stop.nombre, lat: dCand.stop.lat, lng: dCand.stop.lng, stopId: dCand.stop.id }, to: destination, distanceMeters: dCand.distanceMeters, durationMinutes: dCand.walkMinutes, description: `Caminar ${dCand.distanceMeters} m al destino`, segmentCoordinates: [[dCand.stop.lng, dCand.stop.lat], [destination.lng, destination.lat]] });
+                                steps.push({ id: `step-walk-d-${dCand.stop.id}`, type: "walk", fromStopId: dCand.stop.id, fromStopName: dCand.stop.nombre, toStopName: destination.name, distanceMeters: dCand.distanceMeters, durationMinutes: dCand.walkMinutes, description: `Caminar ${dCand.distanceMeters} m al destino` });
+                              }
+
+                              options.push({
+                                id: `transfer2-${linea1.numero}-${linea2.numero}-${linea3.numero}-${oCand.stop.id}-${dCand.stop.id}-${tA.id}-${tC.id}-${rec1.id}-${rec2.id}-${rec3.id}`,
+                                title: `Combinación · ${linea1.numero} (${ramal1.codigo}) ➔ ${linea2.numero} (${ramal2.codigo}) ➔ ${linea3.numero} (${ramal3.codigo})`,
+                                totalDurationMinutes: totalDur,
+                                transfersCount: 2,
+                                walkDurationMinutes: totalWalkMin,
+                                walkDistanceMeters: totalWalkM,
+                                transitDurationMinutes: r1 + r2 + r3,
+                                generalizedCost: gCost,
+                                linesInvolved: [
+                                  { id: linea1.id, numero: linea1.numero, color: linea1.color, textColor: linea1.textColor },
+                                  { id: linea2.id, numero: linea2.numero, color: linea2.color, textColor: linea2.textColor },
+                                  { id: linea3.id, numero: linea3.numero, color: linea3.color, textColor: linea3.textColor },
+                                ],
+                                legs, steps, segments,
+                                highlightLines: [linea1.id, linea2.id, linea3.id, rec1.id, rec2.id, rec3.id],
+                                origin, destination,
+                                originStopId: oCand.stop.id,
+                                destinationStopId: dCand.stop.id,
+                                originCoords: { lat: origin.lat, lng: origin.lng },
+                                destinationCoords: { lat: destination.lat, lng: destination.lng },
+                                transferStopCoords: { lat: tA.lat, lng: tA.lng, color: linea2.color },
+                                bounds: this.computeBounds([origin, destination, oCand.stop, tA, tC, dCand.stop]),
+                                usedStopIds: [oCand.stop.id, tA.id, board2Stop.id, tC.id, board3Stop.id, dCand.stop.id],
+                              });
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return options;
+  }
+
   private static deduplicateOptions(options: TripOption[]): TripOption[] {
     const seen = new Map<string, TripOption>();
 
     for (const opt of options) {
-      // Clave identificadora por cantidad de transfers y líneas
+      // P1-5: Clave por líneas + paradas usadas (incluye punto de transbordo).
+      // Dos "65 → 194" con distinto transbordo NO son duplicadas; el filtro
+      // Pareto decide cuál sobrevive. Solo colapsa idénticas exactas.
       const linesKey = opt.linesInvolved.map((l) => l.numero).join("-") || "walk-only";
-      const key = `${opt.transfersCount}-${linesKey}`;
+      const stopsKey = [...opt.usedStopIds].sort().join(",");
+      const key = `${opt.transfersCount}-${linesKey}-${stopsKey}`;
 
       const existing = seen.get(key);
       if (!existing || opt.generalizedCost < existing.generalizedCost) {

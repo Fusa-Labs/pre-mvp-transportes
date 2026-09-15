@@ -19,19 +19,9 @@ export function getRamalLetter(ramal: RamalDefinition): string {
 }
 
 export function getRamalDisplayName(ramal: RamalDefinition): string {
-  const cod = getRamalLetter(ramal);
-  const shortNames: Record<string, string> = {
-    A: "Once ⇄ Zárate (Común)",
-    B: "Once ⇄ Escobar (Común)",
-    D: "Zárate ➔ Once (Expreso)",
-    E: "Zárate ➔ Once (Reconv. E)",
-    F: "Escobar ➔ Pza. Italia",
-    G: "Zárate ➔ Once (Reconv. G)",
-    H: "Escobar ➔ Once (Reconv.)",
-    I: "Zárate ➔ Retiro (Dif.)",
-    T: "Constitución ⇄ Barrancas",
-  };
-  return shortNames[cod] || ramal.nombre;
+  // P2-8: Usar ramal.nombre del dataset directamente.
+  // Elimina el mapa hardcodeado que se desincroniza al agregar ramales.
+  return ramal.nombre;
 }
 
 /**

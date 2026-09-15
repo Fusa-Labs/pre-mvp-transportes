@@ -3,13 +3,48 @@
 import * as React from "react";
 import { Parada, Linea, EstimacionLlegada } from "@/types/transport";
 import { Bus, Clock, TrainFront, Compass, X } from "lucide-react";
+import { DATASET } from "@/lib/mock/amba-data";
 
 interface StopDetailCardProps {
   parada: Parada;
   linea?: Linea | null;
+  selectedRamalId?: string | null;
   proximoArribo?: EstimacionLlegada | null;
   onClose?: () => void;
   className?: string;
+}
+
+/**
+ * P2-8: Deriva el sentido desde el dataset, no por string-matching de IDs.
+ * Busca recorridos que contienen la parada; si el ramal está seleccionado
+ * filtra por él. Si hay ambigüedad (ida+vuelta), muestra ambos.
+ */
+function resolveSentido(
+  paradaId: string,
+  linea: Linea | null | undefined,
+  selectedRamalId: string | null | undefined
+): { isVuelta: boolean; isAmbiguous: boolean; destino: string | null } {
+  if (!linea?.id) return { isVuelta: false, isAmbiguous: false, destino: null };
+  const lineaData = DATASET.lineas.find((l) => l.id === linea.id);
+  if (!lineaData) return { isVuelta: false, isAmbiguous: false, destino: null };
+
+  const ramales = selectedRamalId
+    ? lineaData.ramales.filter((r) => r.id === selectedRamalId)
+    : lineaData.ramales;
+
+  const sentidos = new Set<string>();
+  let destino: string | null = null;
+  for (const ramal of ramales) {
+    for (const rec of ramal.recorridos) {
+      if (rec.paradas.includes(paradaId)) {
+        sentidos.add(rec.sentido);
+        if (!destino) destino = rec.destino;
+      }
+    }
+  }
+  if (sentidos.size === 0) return { isVuelta: false, isAmbiguous: false, destino: null };
+  if (sentidos.size > 1) return { isVuelta: false, isAmbiguous: true, destino };
+  return { isVuelta: sentidos.has("vuelta"), isAmbiguous: false, destino };
 }
 
 /**
@@ -25,14 +60,17 @@ interface StopDetailCardProps {
 export function StopDetailCard({
   parada,
   linea,
+  selectedRamalId,
   proximoArribo,
   onClose,
   className = "",
 }: StopDetailCardProps) {
-  const isVuelta = parada.id.includes("stop-65-1") && parada.id !== "stop-65-01";
-  const sentidoTexto = isVuelta
-    ? "Vuelta hacia Plaza Constitución"
-    : "Ida hacia Barrancas de Belgrano";
+  const { isVuelta, isAmbiguous, destino } = resolveSentido(parada.id, linea, selectedRamalId);
+  const sentidoTexto = isAmbiguous
+    ? `Ida / Vuelta${destino ? ` · hacia ${destino}` : ""}`
+    : isVuelta
+    ? `Vuelta${destino ? ` hacia ${destino}` : ""}`
+    : `Ida${destino ? ` hacia ${destino}` : ""}`;
   const sentidoBadgeClass = isVuelta
     ? "text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40"
     : "text-sky-600 dark:text-sky-400 border-sky-200 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-950/40";

@@ -156,8 +156,32 @@ export interface MapCanvasProps {
   tripSegments?: TripSegmentItem[] | null;
   /** IDs de las paradas utilizadas en el viaje activo para aislar en el mapa */
   tripUsedStopIds?: string[] | null;
+  /** Modo foco: oculta buses, rutas base, paradas y POIs; muestra solo el trip */
+  tripFocus?: boolean;
   className?: string;
 }
+
+/**
+ * Capas que se ocultan en modo foco (trip seleccionado).
+ * Quedan visibles: trip-seg-*, planner-*, buildings3d, user-*, basemap.
+ */
+const TRIP_FOCUS_HIDDEN_LAYERS = [
+  'buses', 'buses-badge', 'buses-heading', 'buses-iso',
+  'bus-glow', 'bus-labels', 'bus-shadow', 'bus-trail',
+  'route-arrows', 'route-casing', 'route-flow-head', 'route-flow-tail',
+  'route-halo-a', 'route-halo-b', 'route-line',
+  'route-stops', 'route-stops-label', 'stops',
+  'poi-icons', 'poi-labels', 'signal-icons', 'crossing-icons',
+];
+// NOTA: las paradas genéricas se ocultan en foco; en su lugar se muestra
+// la capa 'trip-used-stops' con roles (subida/transbordo/bajada) + etiquetas.
+
+/** Color por rol de parada en el trip (mismo lenguaje que statusColor). */
+const TRIP_STOP_ROLE_COLOR: Record<string, string> = {
+  board: '#10B981',
+  transfer: '#F59E0B',
+  alight: '#EF4444',
+};
 
 const LINE_COLORS: Record<string, string> = Object.fromEntries(
   MOCK_LINES.map((l) => [l.id, l.color]),
@@ -310,6 +334,7 @@ export function MapCanvas({
   plannerPulse = null,
   tripSegments = null,
   tripUsedStopIds = null,
+  tripFocus = false,
   className,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -320,6 +345,7 @@ export function MapCanvas({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const positionsRef = useRef(positions);
   const highlightRef = useRef(highlightLines);
+  const tripFocusRef = useRef(tripFocus);
   const selectedRef = useRef(selectedKey);
   const selectedStopIdRef = useRef<string | null>(selectedStopId);
   const cameraModeRef = useRef(cameraMode);
@@ -894,6 +920,30 @@ export function MapCanvas({
           };
         };
 
+        const tripUsedStopsData = () => {
+          const ids = tripUsedStopIdsRef.current;
+          if (!ids || ids.length === 0) {
+            return { type: 'FeatureCollection' as const, features: [] };
+          }
+          // Rol por posición: primera=subida, última=bajada, medio=transbordo.
+          return {
+            type: 'FeatureCollection' as const,
+            features: ids.map((id, idx) => {
+              const p = (DATASET.paradas as Record<string, { lat: number; lng: number; nombre: string }>)[id];
+              if (!p) return null;
+              const role = idx === 0 ? 'board' : idx === ids.length - 1 ? 'alight' : 'transfer';
+              return {
+                type: 'Feature' as const,
+                geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] as [number, number] },
+                properties: {
+                  id, name: p.nombre, role,
+                  color: TRIP_STOP_ROLE_COLOR[role] ?? '#101D3D',
+                },
+              };
+            }).filter((f): f is NonNullable<typeof f> => f !== null),
+          };
+        };
+
         plannerApplyRef.current = () => {
           if (disposed || mapRef.current !== map) return;
           const pointsSrc = map.getSource('planner-points') as maplibregl.GeoJSONSource | undefined;
@@ -902,6 +952,8 @@ export function MapCanvas({
           pulseSrc?.setData(plannerPulseData());
           const segsSrc = map.getSource('trip-active-segments') as maplibregl.GeoJSONSource | undefined;
           segsSrc?.setData(tripSegmentsData());
+          const usedSrc = map.getSource('trip-used-stops') as maplibregl.GeoJSONSource | undefined;
+          usedSrc?.setData(tripUsedStopsData());
           if (plannerPulseRef.current) startPlannerPulse();
           else stopPlannerPulse();
         };
@@ -1139,7 +1191,12 @@ export function MapCanvas({
 
         let activeStopIds: Set<string>;
 
-        if (!hlSet || hlSet.has('all')) {
+        // Modo foco: SOLO paradas usadas en el trip (abordaje, transbordo,
+        // descenso). No todas las de las líneas implicadas.
+        const usedIds = tripUsedStopIdsRef.current;
+        if (tripFocusRef.current && usedIds && usedIds.length > 0) {
+          activeStopIds = new Set(usedIds);
+        } else if (!hlSet || hlSet.has('all')) {
           activeStopIds = new Set(Object.keys(DATASET.paradas));
         } else {
           activeStopIds = new Set<string>();
@@ -2051,6 +2108,87 @@ export function MapCanvas({
         },
       });
 
+      // ─── Ruta activa del viaje seleccionado (UX selección) ───
+      // Sin estas capas, tripSegments actualizaba un source invisible.
+      // Casing blanco + línea en color del segmento; walk/transfer dashed.
+      map.addSource('trip-active-segments', { type: 'geojson', data: tripSegmentsData() });
+      map.addLayer({
+        id: 'trip-seg-casing',
+        type: 'line',
+        source: 'trip-active-segments',
+        paint: {
+          'line-color': '#FFFFFF',
+          'line-width': 7,
+          'line-opacity': 0.9,
+        },
+      });
+      map.addLayer({
+        id: 'trip-seg-line',
+        type: 'line',
+        source: 'trip-active-segments',
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-dasharray': [
+            'case',
+            ['==', ['get', 'isDashed'], 1],
+            ['literal', [2, 2]],
+            ['literal', [1, 0]],
+          ],
+        },
+      });
+
+      // Reaplica modo foco tras (re)instalación (ej: cambio de tema).
+      if (tripFocusRef.current) {
+        for (const layerId of TRIP_FOCUS_HIDDEN_LAYERS) {
+          if (map.getLayer(layerId)) {
+            map.setLayoutProperty(layerId, 'visibility', 'none');
+          }
+        }
+      }
+
+      // ─── Paradas del trip con roles + etiquetas ───
+      map.addSource('trip-used-stops', { type: 'geojson', data: tripUsedStopsData() });
+      map.addLayer({
+        id: 'trip-used-stops-halo',
+        type: 'circle',
+        source: 'trip-used-stops',
+        paint: {
+          'circle-radius': 13,
+          'circle-color': ['get', 'color'],
+          'circle-opacity': 0.25,
+        },
+      });
+      map.addLayer({
+        id: 'trip-used-stops',
+        type: 'circle',
+        source: 'trip-used-stops',
+        paint: {
+          'circle-radius': 8,
+          'circle-color': ['get', 'color'],
+          'circle-stroke-color': '#FFFFFF',
+          'circle-stroke-width': 3,
+        },
+      });
+      map.addLayer({
+        id: 'trip-used-stops-label',
+        type: 'symbol',
+        source: 'trip-used-stops',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': 11,
+          'text-font': ['Noto Sans Bold'],
+          'text-offset': [0, -1.6],
+          'text-anchor': 'bottom',
+          'text-max-width': 12,
+        },
+        paint: {
+          'text-color': '#0D1420',
+          'text-halo-color': '#FFFFFF',
+          'text-halo-width': 2,
+        },
+      });
+
       // Estado pitch vigente tras un swap de estilo (las capas nuevas
       // nacen alineadas al mapa; si la cámara está inclinada, corrijo).
       updateShadowTilt();
@@ -2139,6 +2277,20 @@ export function MapCanvas({
     highlightRef.current = highlightLines;
     applyRef.current();
   }, [highlightLines]);
+
+  // Modo foco del viaje: oculta buses, rutas base y POIs; filtra paradas
+  // a solo las usadas en el trip.
+  useEffect(() => {
+    tripFocusRef.current = tripFocus;
+    const map = mapRef.current;
+    if (!map) return;
+    for (const layerId of TRIP_FOCUS_HIDDEN_LAYERS) {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', tripFocus ? 'none' : 'visible');
+      }
+    }
+    applyRef.current();
+  }, [tripFocus]);
 
   // Selección → re-render del glow bajo el bus
   useEffect(() => {

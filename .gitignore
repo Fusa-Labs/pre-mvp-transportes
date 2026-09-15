@@ -58,3 +58,6 @@ tmp/
 
 # Local Pi state
 .pi/
+
+dev.log
+dev.log.err

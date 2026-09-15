@@ -1,4 +1,4 @@
-import { ALERTAS_MOCK, LINEAS_MOCK, PARADAS_MOCK, RECORRIDOS_MOCK, VEHICULOS_INICIALES_MOCK } from "@/lib/mock/amba-data";
+import { ALERTAS_MOCK, LINEAS_MOCK, PARADAS_MOCK, RECORRIDOS_MOCK, VEHICULOS_INICIALES_MOCK, DATASET } from "@/lib/mock/amba-data";
 import { MOCK_ROUTES } from "@/mock/data";
 import { getRouteTrack } from "@/lib/map/route-progress";
 import type { VehiclePosition } from "@/lib/data-service";
@@ -139,9 +139,24 @@ export class TransportService implements IDataService {
             displayLabel = `${etaMin} min`;
           }
 
-          const isVuelta = parada.id.includes('stop-65-1') && parada.id !== 'stop-65-01';
+          // P2-8: Derivar sentido desde datos, no por string-matching de IDs.
+          // Prioridad: 1) direction del vehículo vivo, 2) ramal del vehículo,
+          // 3) recorridos del dataset que contienen la parada.
+          let isVuelta = veh.direction === "vuelta";
+          let directionRamal = "";
+          if (veh.ramalId) {
+            const lineaData = DATASET.lineas.find((l) => l.id === linea.id);
+            const ramalData = lineaData?.ramales.find((r) => r.id === veh.ramalId);
+            const recData = ramalData?.recorridos.find((r) => r.paradas.includes(parada.id));
+            if (recData) {
+              isVuelta = recData.sentido === "vuelta";
+              directionRamal = `${recData.origen} → ${recData.destino}`;
+            }
+          }
+          if (!directionRamal) {
+            directionRamal = isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas';
+          }
           const directionColor = isVuelta ? '#EF4444' : '#0EA5E9';
-          const directionRamal = isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas';
 
           liveLlegadas.push({
             lineaId: linea.id,
@@ -183,9 +198,16 @@ export class TransportService implements IDataService {
       const interno1 = "25";
       const interno2 = "48";
 
-      const isVuelta = paradaId.includes('stop-65-1') && paradaId !== 'stop-65-01';
+      // P2-8 (fallback sin GPS): derivar del dataset.
+      const lineaDataFb = DATASET.lineas.find((l) => l.id === linea.id);
+      const recFb = lineaDataFb?.ramales
+        .flatMap((r) => r.recorridos)
+        .find((r) => r.paradas.includes(paradaId));
+      const isVuelta = recFb?.sentido === "vuelta";
       const directionColor = isVuelta ? '#EF4444' : '#0EA5E9';
-      const directionRamal = isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas';
+      const directionRamal = recFb
+        ? `${recFb.origen} → ${recFb.destino}`
+        : (isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas');
 
       llegadas.push({
         lineaId: linea.id,

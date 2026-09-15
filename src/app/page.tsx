@@ -53,6 +53,7 @@ export default function TransportesAppPage() {
     return TripPlannerService.resolveLocationPoint("stop-194-panamericana-parana") || null; // Unicenter
   });
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [mapPickTarget, setMapPickTarget] = useState<"origin" | "destination" | null>(null);
 
   // Suscripción al feed GPS en tiempo real (1 Hz) de todas las unidades
@@ -145,6 +146,11 @@ export default function TransportesAppPage() {
     return tripOptions.find((t: TripOption) => t.id === selectedTripId) || tripOptions[0] || null;
   }, [tripOptions, selectedTripId]);
 
+  // Al cambiar de opción, limpiar el paso seleccionado.
+  useEffect(() => {
+    setSelectedStepId(null);
+  }, [selectedTrip?.id]);
+
   const effectiveHighlightLines = useMemo(() => {
     if (isTripMode && selectedTrip) {
       return selectedTrip.highlightLines;
@@ -173,6 +179,30 @@ export default function TransportesAppPage() {
 
   const focusRequest: MapFocusRequest | null = useMemo(() => {
     if (!isTripMode || !selectedTrip) return null;
+    // Si hay un paso seleccionado, enfocar su geometría en vez del trip entero.
+    if (selectedStepId) {
+      const step = selectedTrip.steps.find((s) => s.id === selectedStepId);
+      const leg = step?.legIndex !== undefined ? selectedTrip.legs[step.legIndex] : undefined;
+      const coords = leg?.segmentCoordinates;
+      if (coords && coords.length >= 2) {
+        let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+        for (const [lng, lat] of coords) {
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        }
+        // Padding mínimo para que el segmento no quede pegado al borde.
+        const padLng = Math.max((maxLng - minLng) * 0.3, 0.004);
+        const padLat = Math.max((maxLat - minLat) * 0.3, 0.004);
+        const nonce = `${selectedTrip.id}|${selectedStepId}`.split("").reduce((acc, c) => acc + c.charCodeAt(0), 1);
+        return {
+          bounds: [[minLng - padLng, minLat - padLat], [maxLng + padLng, maxLat + padLat]],
+          nonce,
+          bottomPadding: 220,
+        };
+      }
+    }
     const nonce = selectedTrip.id
       .split("")
       .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 1);
@@ -181,7 +211,7 @@ export default function TransportesAppPage() {
       nonce,
       bottomPadding: 220,
     };
-  }, [isTripMode, selectedTrip]);
+  }, [isTripMode, selectedTrip, selectedStepId]);
 
     const handleStartMapPick = useCallback((target: "origin" | "destination") => {
     setMapPickTarget(target);
@@ -435,6 +465,7 @@ export default function TransportesAppPage() {
               plannerPulse={plannerPulse}
                   tripSegments={isTripMode && selectedTrip ? selectedTrip.segments : null}
                   tripUsedStopIds={isTripMode && selectedTrip ? selectedTrip.usedStopIds : null}
+                  tripFocus={isTripMode && !!selectedTrip}
                   pickMode={Boolean(mapPickTarget)}
                   onMapPick={handleMapPick}
               className="w-full h-full"
@@ -493,9 +524,13 @@ export default function TransportesAppPage() {
             <ViajePanel
               options={tripOptions}
               selectedOptionId={selectedTrip?.id || null}
-              onSelectOption={setSelectedTripId}
+              onSelectOption={(id) => { setSelectedTripId(id); setSelectedStepId(null); }}
               onClose={handleCloseTripMode}
               hasPointsSelected={Boolean(originLocation && destinationLocation)}
+              originLocation={originLocation}
+              destinationLocation={destinationLocation}
+              selectedStepId={selectedStepId}
+              onSelectStep={setSelectedStepId}
             />
           ) : (
             <LiveTransportBubble
