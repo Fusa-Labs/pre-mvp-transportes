@@ -77,7 +77,7 @@ export default function BottomNavBar({
         
         {/* Slot 1 & 2: Líneas y Tus Paradas (Lado Izquierdo) */}
         {LEFT_ITEMS.map((item) => {
-          const isItemActive = item.id === "lineas" ? isLineMenuOpen : activeTab === item.id;
+          const isItemActive = item.id === "lineas" ? (isMapActive && isLineMenuOpen) : activeTab === item.id;
           const Icon = item.icon;
 
           return (

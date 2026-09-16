@@ -267,6 +267,13 @@ export default function TransportesAppPage() {
     setIsTripMode(false);
   }, []);
 
+  const handleTabChange = useCallback((tab: NavigationTab) => {
+    setActiveTab(tab);
+    if (tab !== "mapa") {
+      setIsLineMenuOpen(false);
+    }
+  }, []);
+
   const handleToggleLineMenu = useCallback(() => {
     if (activeTab !== "mapa") {
       setActiveTab("mapa");
@@ -559,7 +566,7 @@ export default function TransportesAppPage() {
       {/* Bottom Navigation Bar Flotante (Presente en todas las pestañas) */}
       <BottomNavBar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         isLineMenuOpen={isLineMenuOpen}
         onToggleLineMenu={handleToggleLineMenu}
         isTripMode={isTripMode}
