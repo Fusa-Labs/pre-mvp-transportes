@@ -601,6 +601,7 @@ export function MapCanvas({
             steer,
             shortName: LINE_SHORT[m.lineId] ?? m.lineId,
             lineId: m.lineId,
+            ramalId: m.ramalId,
             unitId: m.unitId,
             selected: selectedRef.current === key ? 1 : 0,
           },
@@ -1330,11 +1331,14 @@ export function MapCanvas({
       if (!Array.isArray(coordinates) || coordinates.length < 2) return;
       const key = `${String(f.properties.lineId)}-${String(f.properties.unitId)}`;
       const live = currentMap.get(key);
+      const meta = metaMap.get(key);
       cameraModeRef.current = 'follow-vehicle';
       cameraModeHandlerRef.current?.('follow-vehicle');
       selectHandlerRef.current?.({
         lineId: String(f.properties.lineId),
         unitId: String(f.properties.unitId),
+        ramalId: meta?.ramalId ?? (f.properties.ramalId ? String(f.properties.ramalId) : undefined),
+        direction: meta?.direction,
         lng: live?.lng ?? Number(coordinates[0]),
         lat: live?.lat ?? Number(coordinates[1]),
         heading: live?.heading ?? Number(f.properties.heading ?? 0),

@@ -347,9 +347,13 @@ export default function TransportesAppPage() {
     setSelectedVehiculo(pos);
     if (pos) {
       setSelectedLineaId(pos.lineId);
+      // Al seleccionar un colectivo, se aísla exclusivamente su ramal y sus unidades
+      setSelectedRamalId(pos.ramalId || null);
       setSelectedParada(null);
       setIsLineMenuOpen(false);
       setCameraMode("follow-vehicle");
+    } else {
+      setCameraMode("overview");
     }
   }, []);
 
@@ -471,7 +475,10 @@ export default function TransportesAppPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setSelectedVehiculo(null)}
+                        onClick={() => {
+                          setSelectedVehiculo(null);
+                          setCameraMode("overview");
+                        }}
                         title="Deseleccionar colectivo"
                         aria-label="Cerrar selección de colectivo"
                         className="w-5 h-5 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink shrink-0 transition-colors"
