@@ -180,7 +180,8 @@ html, body {
 
 /* Posicionamiento y estilo de controles nativos MapLibre GL acorde a DESIGN.MD */
 .maplibregl-ctrl-top-right {
-  top: calc(max(14px, env(safe-area-inset-top)) + 58px) !important;
+  top: calc(max(14px, env(safe-area-inset-top)) + var(--map-ctrl-offset, 58px)) !important;
+  transition: top 300ms ease-out !important;
   right: 16px !important;
   margin: 0 !important;
   padding: 0 !important;

@@ -34,11 +34,8 @@ export default function TransportesAppPage() {
   const alertas = useMemo(() => TransportService.getAlertas(), []);
 
   const [positions, setPositions] = useState<VehiclePosition[]>([]);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>({
-    lat: -34.604463,
-    lng: -58.434711,
-  });
-  const [selectedLineaId, setSelectedLineaId] = useState<string | null>("line-65");
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedLineaId, setSelectedLineaId] = useState<string | null>(null);
   const [selectedRamalId, setSelectedRamalId] = useState<string | null>(null);
   const [selectedParada, setSelectedParada] = useState<Parada | null>(null);
   const [selectedVehiculo, setSelectedVehiculo] = useState<VehiclePosition | null>(null);
@@ -46,12 +43,8 @@ export default function TransportesAppPage() {
 
   // ─── Estado del Modo "Viaje" (Ubicaciones Arbitrarias / Paradas / POIs) ──
   const [isTripMode, setIsTripMode] = useState<boolean>(false);
-  const [originLocation, setOriginLocation] = useState<LocationPoint | null>(() => {
-    return TripPlannerService.resolveLocationPoint("stop-65-05") || null; // Parque Centenario
-  });
-  const [destinationLocation, setDestinationLocation] = useState<LocationPoint | null>(() => {
-    return TripPlannerService.resolveLocationPoint("stop-194-panamericana-parana") || null; // Unicenter
-  });
+  const [originLocation, setOriginLocation] = useState<LocationPoint | null>(null);
+  const [destinationLocation, setDestinationLocation] = useState<LocationPoint | null>(null);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [mapPickTarget, setMapPickTarget] = useState<"origin" | "destination" | null>(null);
@@ -85,7 +78,7 @@ export default function TransportesAppPage() {
   const regularHighlightLines = useMemo(() => {
     if (selectedRamalId) return [selectedRamalId];
     if (selectedLineaId) return [selectedLineaId];
-    return ALL_LINE_IDS;
+    return []; // Ocultas por defecto: trazas invisibles hasta que el usuario elija línea o ramal
   }, [selectedLineaId, selectedRamalId]);
 
   const filteredPositions = useMemo(() => {
@@ -95,7 +88,7 @@ export default function TransportesAppPage() {
     if (selectedLineaId) {
       return positions.filter((p) => p.lineId === selectedLineaId);
     }
-    return positions;
+    return []; // Ocultos por defecto: ningún colectivo en el mapa hasta que se seleccione línea o ramal
   }, [positions, selectedLineaId, selectedRamalId]);
 
   const selectedKey = useMemo(() => {
@@ -134,6 +127,37 @@ export default function TransportesAppPage() {
     if (!track) return 0;
     return track.project(selectedVehiculo.lng, selectedVehiculo.lat).alongM;
   }, [selectedVehiculo]);
+
+  // ─── Información Contextual del Colectivo Seleccionado ──────────────
+  const selectedVehicleInfo = useMemo(() => {
+    if (!selectedVehiculo) return null;
+    const linea = lineas.find((l) => l.id === selectedVehiculo.lineId) || null;
+    // La información del ramal refleja el colectivo seleccionado, sin quedar atada a un filtro previo
+    const ramal = linea?.ramalesDetalle?.find((r) => r.id === selectedVehiculo.ramalId) || null;
+
+    let nextStopName: string | null = null;
+    let minutesToNextStop: number | null = null;
+
+    if (timelineStops && timelineStops.length > 0) {
+      const next = timelineStops.find((s) => s.alongM > busAlongM) || timelineStops[timelineStops.length - 1];
+      if (next) {
+        nextStopName = next.name;
+        const distM = Math.max(0, next.alongM - busAlongM);
+        const speedKmh = selectedVehiculo.speed && selectedVehiculo.speed > 5 ? selectedVehiculo.speed : 18;
+        minutesToNextStop = Math.max(1, Math.round(distM / ((speedKmh * 1000) / 60)));
+      }
+    }
+
+    const unitNumber = selectedVehiculo.unitId.replace(/^[a-zA-Z]-?/, "");
+
+    return {
+      linea,
+      ramal,
+      unitNumber,
+      nextStopName,
+      minutesToNextStop,
+    };
+  }, [selectedVehiculo, lineas, timelineStops, busAlongM]);
 
   // ─── Planificación de Viaje Reactiva Basada en Motor Real ────────────
   const tripOptions = useMemo(() => {
@@ -245,7 +269,7 @@ export default function TransportesAppPage() {
   const handleToggleTripMode = useCallback(() => {
     if (activeTab !== "mapa") {
       setActiveTab("mapa");
-      setIsTripMode(true);
+      setIsTripMode(false); // Entrar a mapa limpio sin activar Modo Viaje automáticamente
       setIsLineMenuOpen(false);
     } else {
       setIsTripMode((prev) => {
@@ -323,8 +347,9 @@ export default function TransportesAppPage() {
     setSelectedVehiculo(pos);
     if (pos) {
       setSelectedLineaId(pos.lineId);
+      setSelectedParada(null);
+      setIsLineMenuOpen(false);
       setCameraMode("follow-vehicle");
-      setIsLineMenuOpen(true);
     }
   }, []);
 
@@ -339,6 +364,8 @@ export default function TransportesAppPage() {
     setSelectedParada(null);
     setCameraMode("overview");
   }, []);
+
+  const hasActivePill = Boolean(selectedVehiculo || selectedRamal);
 
   return (
     <div className="relative w-full h-full min-h-dvh overflow-hidden bg-background text-foreground select-none">
@@ -369,7 +396,10 @@ export default function TransportesAppPage() {
 
       {/* Vista de Mapa Interactivo WebGL */}
       {activeTab === "mapa" && (
-        <main className="relative w-screen h-[100dvh] overflow-hidden select-none bg-canvas text-foreground touch-manipulation">
+        <main
+          className="relative w-screen h-[100dvh] overflow-hidden select-none bg-canvas text-foreground touch-manipulation"
+          style={{ "--map-ctrl-offset": hasActivePill ? "124px" : "58px" } as React.CSSProperties}
+        >
           {/* Header Flotante Superior: Búsqueda regular o Modo Viaje */}
           <div className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col items-center gap-2">
             {isTripMode ? (
@@ -413,8 +443,57 @@ export default function TransportesAppPage() {
                   </span>
                 </button>
 
-                {/* Píldora del Ramal Seleccionado */}
-                {selectedRamal && (
+                {/* Píldora del Colectivo Seleccionado (Multilínea en mobile para mostrar información completa) */}
+                {selectedVehiculo && selectedVehicleInfo && (
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-200 w-full max-w-md px-3.5 py-2 rounded-2xl bg-canvas/95 dark:bg-canvas/95 backdrop-blur-xl border border-hairline shadow-md text-xs pointer-events-auto flex flex-col gap-1">
+                    {/* Fila 1: Insignia, Línea, Ramal, Coche y botón Cerrar */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 shadow-xs"
+                          style={{
+                            backgroundColor: selectedVehicleInfo.ramal?.color || selectedVehicleInfo.linea?.colorHex || "#1D4ED8",
+                          }}
+                        >
+                          {selectedVehicleInfo.ramal ? getRamalLetter(selectedVehicleInfo.ramal) : (selectedVehicleInfo.linea?.numero || selectedVehiculo.lineId.replace("line-", ""))}
+                        </span>
+                        <span className="font-bold text-ink shrink-0">
+                          {selectedVehicleInfo.linea ? `Línea ${selectedVehicleInfo.linea.numero}` : selectedVehiculo.lineId.replace("line-", "Línea ")}
+                        </span>
+                        {selectedVehicleInfo.ramal && (
+                          <span className="text-text-muted font-medium shrink-0">
+                            • {selectedVehicleInfo.ramal.codigo}
+                          </span>
+                        )}
+                        <span className="font-semibold text-ink shrink-0">
+                          • Coche {selectedVehicleInfo.unitNumber}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedVehiculo(null)}
+                        title="Deseleccionar colectivo"
+                        aria-label="Cerrar selección de colectivo"
+                        className="w-5 h-5 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink shrink-0 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Fila 2: Próxima parada y tiempo estimado COMPLETO sin puntos suspensivos */}
+                    {selectedVehicleInfo.nextStopName && selectedVehicleInfo.minutesToNextStop !== null && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold pl-0.5 leading-snug">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span>
+                          Próxima parada: <span className="font-bold text-ink underline decoration-emerald-500/40 decoration-1 underline-offset-2">{selectedVehicleInfo.nextStopName}</span> (~{selectedVehicleInfo.minutesToNextStop} min)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Píldora del Ramal Seleccionado (visible si no hay colectivo seleccionado) */}
+                {!selectedVehiculo && selectedRamal && (
                   <div className="animate-in fade-in slide-in-from-top-2 duration-200 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-canvas/95 dark:bg-canvas/95 backdrop-blur-xl border border-hairline shadow-md text-xs pointer-events-auto max-w-full truncate">
                     <span
                       className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 shadow-xs"
@@ -451,6 +530,7 @@ export default function TransportesAppPage() {
               selectedRamalId={selectedRamalId}
               onSelectLinea={handleSelectLinea}
               onSelectRamal={handleSelectRamal}
+              hasTopPill={hasActivePill}
             />
           )}
 
@@ -481,7 +561,13 @@ export default function TransportesAppPage() {
           </div>
 
           {/* Controles Flotantes en el Mapa */}
-          <div className="absolute right-4 top-[calc(max(14px,env(safe-area-inset-top))+184px)] z-20 flex flex-col gap-2 pointer-events-auto items-center w-10">
+          <div
+            className={`absolute right-4 z-20 flex flex-col gap-2 pointer-events-auto items-center w-10 transition-all duration-300 ease-out ${
+              hasActivePill
+                ? "top-[calc(max(14px,env(safe-area-inset-top))+250px)]"
+                : "top-[calc(max(14px,env(safe-area-inset-top))+184px)]"
+            }`}
+          >
             <ThemeToggle />
 
 
@@ -497,7 +583,7 @@ export default function TransportesAppPage() {
             {selectedVehiculo && (
               <button
                 onClick={handleToggle3D}
-                title={cameraMode === "navigation-vehicle" ? "Vista 2D Cenital" : "Seguir en 3D"}
+                title={cameraMode === "navigation-vehicle" ? "Cambiar a vista 2D" : "Volver a la vista 3D"}
                 aria-label="Alternar modo 3D"
                 className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
                   cameraMode === "navigation-vehicle"

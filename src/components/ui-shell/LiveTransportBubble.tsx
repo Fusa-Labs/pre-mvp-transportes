@@ -7,6 +7,7 @@ import type { VehiclePosition } from "@/lib/data-service";
 import type { CameraMode } from "@/lib/map/camera-controller";
 import type { StopAlongRoute } from "@/lib/map/route-progress";
 import { RouteTimeline } from "@/components/map/RouteTimeline";
+import { useDragCollapse } from "@/lib/hooks/use-drag-collapse";
 
 interface LiveTransportBubbleProps {
   isOpen: boolean;
@@ -46,6 +47,7 @@ export default function LiveTransportBubble({
   busAlongM = 0,
 }: LiveTransportBubbleProps) {
   const [activeTab, setActiveTab] = useState<"llegadas" | "paradas" | "alertas">("llegadas");
+  const { collapsed, toggle, handleProps } = useDragCollapse(false);
 
   if (!isOpen) return null;
 
@@ -57,7 +59,8 @@ export default function LiveTransportBubble({
     <div className="fixed bottom-[88px] inset-x-0 z-40 pointer-events-none flex justify-center px-4 pb-[env(safe-area-inset-bottom,0px)]">
       <aside
         aria-label="Panel de información en vivo de la línea"
-        className="pointer-events-auto w-full max-w-[410px] max-h-[58dvh] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col relative animate-in fade-in slide-in-from-bottom-3 duration-200"
+        style={{ maxHeight: collapsed ? "74px" : "58dvh" }}
+        className="pointer-events-auto w-full max-w-[410px] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col relative animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-hidden transition-[max-height] duration-300"
       >
         {/* Puntero triangular tipo burbuja apuntando al botón de Líneas en la navbar */}
         <div
@@ -65,8 +68,24 @@ export default function LiveTransportBubble({
           aria-hidden="true"
         />
 
-      {/* 1. Header de la Burbuja: Línea y Estado en Vivo */}
-      <div className="p-3.5 pb-2.5 border-b border-hairline-soft flex items-center justify-between shrink-0">
+        {/* Grip de arrastre */}
+        <div
+          className="pt-1.5 pb-0.5 flex justify-center shrink-0 cursor-pointer"
+          aria-hidden="true"
+          onClick={toggle}
+        >
+          <div className="w-9 h-1 rounded-full bg-hairline" />
+        </div>
+
+        {/* 1. Header de la Burbuja: Línea y Estado en Vivo */}
+        <div
+          className="p-3.5 pt-1 pb-2.5 border-b border-hairline-soft flex items-center justify-between shrink-0 select-none cursor-pointer"
+          {...handleProps}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest("button")) return;
+            toggle();
+          }}
+        >
         <div className="flex items-center gap-2.5 truncate">
           {selectedLinea ? (
             <div className="flex items-center gap-2 truncate">
@@ -176,7 +195,7 @@ export default function LiveTransportBubble({
                 className="w-full py-1.5 px-3 rounded-full text-[11px] font-semibold bg-canvas border border-hairline flex items-center justify-center gap-1.5 hover:bg-field text-ink transition-colors"
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>{cameraMode === "navigation-vehicle" ? "Modo 2D Cenital" : "Seguir en 3D"}</span>
+                <span>{cameraMode === "navigation-vehicle" ? "Cambiar a vista 2D" : "Volver a la vista 3D"}</span>
               </button>
             )}
 

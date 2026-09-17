@@ -1196,7 +1196,10 @@ export function MapCanvas({
         const usedIds = tripUsedStopIdsRef.current;
         if (tripFocusRef.current && usedIds && usedIds.length > 0) {
           activeStopIds = new Set(usedIds);
-        } else if (!hlSet || hlSet.has('all')) {
+        } else if (!hlSet || hlSet.size === 0) {
+          // Ocultas por defecto: sin línea ni ramal seleccionado, 0 paradas visibles
+          activeStopIds = new Set<string>();
+        } else if (hlSet.has('all')) {
           activeStopIds = new Set(Object.keys(DATASET.paradas));
         } else {
           activeStopIds = new Set<string>();
@@ -1620,18 +1623,20 @@ export function MapCanvas({
         type: 'geojson',
         data: {
           type: 'FeatureCollection',
-          features: MOCK_STOPS.map((s) => {
-            const isVuelta = s.id.includes('stop-65-1') && s.id !== 'stop-65-01';
-            return {
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
-              properties: {
-                id: s.id,
-                name: s.name,
-                color: isVuelta ? '#EF4444' : '#0EA5E9',
-              },
-            };
-          }),
+          features: highlightRef.current && highlightRef.current.length > 0
+            ? MOCK_STOPS.map((s) => {
+                const isVuelta = s.id.includes('stop-65-1') && s.id !== 'stop-65-01';
+                return {
+                  type: 'Feature',
+                  geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+                  properties: {
+                    id: s.id,
+                    name: s.name,
+                    color: isVuelta ? '#EF4444' : '#0EA5E9',
+                  },
+                };
+              })
+            : [],
         },
       });
       map.addLayer({
