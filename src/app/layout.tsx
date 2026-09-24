@@ -13,21 +13,43 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Transportes AMBA • Monitoreo en Vivo (Metropol)",
+  title: "La Nueva Metropol • Colectivos en Vivo",
   description:
-    "Maqueta interactiva de transporte para el Área Metropolitana de Buenos Aires con monitoreo de colectivos en tiempo real.",
+    "La Nueva Metropol: monitoreo de colectivos del AMBA en tiempo real, paradas y alertas de servicio.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Transportes AMBA",
+    title: "La Nueva Metropol",
   },
   formatDetection: {
     telephone: false,
   },
   icons: {
-    icon: "/icon.svg",
-    apple: "/icon-192.svg",
+    icon: "/metropol-icon.png",
+    apple: "/metropol-icon.png",
+  },
+  openGraph: {
+    title: "La Nueva Metropol • Colectivos en Vivo",
+    description:
+      "Monitoreo de colectivos del AMBA en tiempo real con la identidad de La Nueva Metropol.",
+    siteName: "La Nueva Metropol",
+    locale: "es_AR",
+    type: "website",
+    images: [
+      {
+        url: "/metropol-logo.svg",
+        width: 719,
+        height: 179,
+        alt: "La Nueva Metropol",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary",
+    title: "La Nueva Metropol • Colectivos en Vivo",
+    description: "Monitoreo de colectivos del AMBA en tiempo real.",
+    images: ["/metropol-logo.svg"],
   },
 };
 

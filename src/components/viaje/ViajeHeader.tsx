@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { ArrowUpDown, X, Search, Navigation, CornerDownLeft, ChevronDown, Crosshair } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { ArrowUpDown, X, Search, Navigation, CornerDownLeft, ChevronDown, Crosshair, Eraser } from "lucide-react";
 import { LocationPoint } from "@/types/trip-planner";
 import { TripPlannerService, KNOWN_POIS } from "@/lib/services/trip-planner-service";
+import { SIMULATED_USER_LOCATION } from "@/lib/config/user-location";
 import { useDragCollapse } from "@/lib/hooks/use-drag-collapse";
 
 interface ViajeHeaderProps {
@@ -17,6 +18,7 @@ interface ViajeHeaderProps {
   onStartMapPick?: (target: "origin" | "destination") => void;
   mapPickTarget?: "origin" | "destination" | null;
   onCancelMapPick?: () => void;
+  onClear?: () => void;
 }
 
 export default function ViajeHeader({
@@ -30,13 +32,31 @@ export default function ViajeHeader({
   onStartMapPick,
   mapPickTarget,
   onCancelMapPick,
+  onClear,
 }: ViajeHeaderProps) {
   const [activeField, setActiveField] = useState<"origin" | "destination" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Debounce: el geocoder local corre en el hilo principal; sin él,
+  // cada keystroke re-renderiza el dropdown y contiende el main thread
+  // con el mapa WebGL de fondo (parpadeo / jank).
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const { collapsed, toggle, handleProps } = useDragCollapse(false);
 
-  const filteredLocations = TripPlannerService.searchLocations(searchQuery);
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setDebouncedQuery("");
+      return;
+    }
+    const t = window.setTimeout(() => setDebouncedQuery(q), 300);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
+
+  const filteredLocations = useMemo(
+    () => TripPlannerService.searchLocations(debouncedQuery),
+    [debouncedQuery],
+  );
 
   useEffect(() => {
     if (activeField && inputRef.current) {
@@ -73,8 +93,8 @@ export default function ViajeHeader({
       const fallbackPoint: LocationPoint = {
         name: clean,
         address: clean,
-        lat: -34.604463,
-        lng: -58.434711,
+        lat: SIMULATED_USER_LOCATION.lat,
+        lng: SIMULATED_USER_LOCATION.lng,
         isArbitrary: true,
         source: "text",
       };
@@ -86,12 +106,19 @@ export default function ViajeHeader({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (filteredLocations.length > 0 && searchQuery.trim()) {
-        handleSelect(filteredLocations[0]);
+      // Geocoder en vivo (sin esperar el debounce de 300ms) para Enter.
+      const live = searchQuery.trim()
+        ? TripPlannerService.searchLocations(searchQuery)
+        : [];
+      if (live.length > 0) {
+        handleSelect(live[0]);
       } else {
         handleConfirmFreeText(searchQuery);
       }
     } else if (e.key === "Escape") {
+      // El ESC solo cierra el campo activo: sin stopPropagation el evento
+      // sigue burbujeando al listener de window y cerraría todo el Modo Viaje.
+      e.stopPropagation();
       setActiveField(null);
       setSearchQuery("");
     }
@@ -102,7 +129,7 @@ export default function ViajeHeader({
     const isOrigin = mapPickTarget === "origin";
     return (
       <div className="relative w-full max-w-md mx-auto pointer-events-auto animate-in fade-in slide-in-from-top-3 duration-200">
-        <div className="bg-canvas/98 dark:bg-canvas/98 backdrop-blur-2xl border-2 border-electric-blue rounded-[26px] p-3.5 shadow-[0_16px_45px_-6px_rgba(0,102,255,0.3)] flex items-center justify-between gap-3">
+        <div className="bg-canvas dark:bg-canvas border-2 border-electric-blue rounded-[26px] p-3.5 shadow-[0_16px_45px_-6px_rgba(0,102,255,0.3)] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 truncate">
             <div className="w-8 h-8 rounded-full bg-electric-blue text-white flex items-center justify-center shrink-0 shadow-sm animate-pulse">
               <Crosshair className="w-4 h-4" />
@@ -135,7 +162,7 @@ export default function ViajeHeader({
       {/* Vista compacta al contraer: origen → destino en una línea */}
       {showCompact && (
         <div
-          className="bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-full pl-4 pr-2 py-2 shadow-md flex items-center gap-2 select-none"
+          className="bg-canvas dark:bg-canvas border border-hairline rounded-full pl-4 pr-2 py-2 shadow-md flex items-center gap-2 select-none"
           {...handleProps}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;
@@ -159,7 +186,7 @@ export default function ViajeHeader({
       )}
       {/* Tarjeta principal con campos de Origen y Destino */}
       {!showCompact && (
-      <div className="bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[26px] p-3 shadow-[0_12px_36px_-6px_rgba(0,0,0,0.18)] dark:shadow-[0_14px_40px_-6px_rgba(0,0,0,0.7)] transition-all">
+      <div className="bg-canvas dark:bg-canvas border border-hairline rounded-[26px] p-3 shadow-[0_12px_36px_-6px_rgba(0,0,0,0.18)] dark:shadow-[0_14px_40px_-6px_rgba(0,0,0,0.7)]">
         <div
           className="flex items-center justify-between pb-2 mb-2 border-b border-hairline-soft px-1 select-none"
           {...handleProps}
@@ -176,15 +203,30 @@ export default function ViajeHeader({
             </span>
             <ChevronDown className={`w-3.5 h-3.5 text-text-muted transition-transform ${collapsed ? "rotate-180" : ""}`} />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-7 h-7 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink transition-colors"
-            title="Salir de modo Viaje"
-            aria-label="Cerrar modo Viaje"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {/* Grupo acciones: Limpiar (secundaria) · Cerrar X (convención: borde derecho) */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onClear && (
+              <button
+                type="button"
+                onClick={onClear}
+                disabled={!originLocation && !destinationLocation}
+                className="w-8 h-8 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink transition-colors active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                title="Limpiar campos"
+                aria-label="Limpiar origen y destino"
+              >
+                <Eraser className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink transition-colors active:scale-95"
+              title="Salir de modo Viaje"
+              aria-label="Cerrar modo Viaje"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -208,7 +250,7 @@ export default function ViajeHeader({
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder="Escribí origen (ej: Zárate, Av. Cabildo 2500)..."
+                    placeholder="Escribí calle o lugar (ej: Cabildo, Obelisco)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -280,7 +322,7 @@ export default function ViajeHeader({
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder="Escribí destino (ej: Hospital Durand, Zárate)..."
+                    placeholder="Escribí destino (ej: Obelisco, Av. Corrientes)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleKeyDown}

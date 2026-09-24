@@ -169,6 +169,60 @@ html, body {
   }
 }
 
+/* Aura dock de la rosa Metropol — ver docs/metropol/METROPOL-ROSA-DESIGN.md */
+@keyframes rutaba-rose-glow {
+  0%, 100% {
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.32), 0 0 16px rgba(139, 92, 246, 0.22);
+  }
+  50% {
+    box-shadow: 0 8px 28px rgba(139, 92, 246, 0.55), 0 0 32px rgba(139, 92, 246, 0.45);
+  }
+}
+
+.rutaba-rose-btn {
+  animation: rutaba-rose-glow 3.2s ease-in-out infinite;
+}
+
+.rutaba-rose-btn[data-active='true'] {
+  animation: none;
+  box-shadow: 0 8px 30px rgba(139, 92, 246, 0.6), 0 0 36px rgba(139, 92, 246, 0.5);
+}
+
+/* Shine / drive para CTAs de horarios */
+@keyframes rutaba-shine {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+@keyframes rutaba-drive {
+  0% {
+    transform: translateX(-8%);
+  }
+  50% {
+    transform: translateX(8%);
+  }
+  100% {
+    transform: translateX(-8%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rutaba-rose-aura,
+  .rutaba-rose-btn,
+  .rutaba-shine,
+  .rutaba-drive {
+    animation: none !important;
+  }
+
+  .rutaba-rose-btn {
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.32), 0 0 16px rgba(139, 92, 246, 0.22);
+  }
+}
+
 /* Utilidades para Safe Areas móviles */
 .pt-safe {
   padding-top: max(16px, env(safe-area-inset-top));

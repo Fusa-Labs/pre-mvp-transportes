@@ -21,12 +21,12 @@ export function ThemeToggle({ className = "" }: ThemeToggleProps) {
       type="button"
       title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
       aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-      className={`w-10 h-10 rounded-full bg-canvas border border-hairline flex items-center justify-center text-ink hover:bg-canvas-soft transition-colors pointer-events-auto touch-manipulation ${className}`}
+      className={`h-12 w-12 rounded-full bg-canvas border border-hairline flex items-center justify-center text-ink hover:bg-canvas-soft transition-colors pointer-events-auto touch-manipulation ${className}`}
     >
       {isDark ? (
-        <Sun className="w-4 h-4 text-ink transition-transform duration-200" />
+        <Sun className="w-5 h-5 text-ink transition-transform duration-200" />
       ) : (
-        <Moon className="w-4 h-4 text-ink transition-transform duration-200" />
+        <Moon className="w-5 h-5 text-ink transition-transform duration-200" />
       )}
     </button>
   );

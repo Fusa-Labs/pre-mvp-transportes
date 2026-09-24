@@ -1,0 +1,361 @@
+{
+  "meta": {
+    "project": "pre-mvp-transportes",
+    "branch": "feat/home-assistant-intents",
+    "docx": "docs/Backlog-feat-home-assistant-intents.docx",
+    "updated": "2026-09-23",
+    "lastCompleted": "PBI-021 Fix post-demo: el chip '¿Cómo llego a…?' SIEMPRE muestra el wizard (nunca saltea el paso Destino; reanuda precargado) y cabecera del sheet en una fila: pill de lugar a la izquierda, minimizar y X a la derecha, sin etiqueta 'Asistente'",
+    "seededFrom": "HANDOFF-LANDING-HOME-MCP.md + plan a–f aprobado"
+  },
+  "items": [
+    {
+      "id": "PBI-001",
+      "title": "Skill scrum-backlog + seed de docs/backlog.json",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como agente del repo, quiero una skill reproducible que mantenga el Backlog en JSON y lo exporte a Word, para no perder los PBIs entre sesiones.",
+      "acceptance": [
+        "Skill scrum-backlog creada en skills/ con frontmatter y commands",
+        "docs/backlog.json seedado con los PBIs del handoff",
+        "docs/Backlog-fix-home.docx generado y más nuevo que el JSON"
+      ],
+      "notes": "Plan paso (a). Defaults aceptados: es-AR, nombre por rama."
+    },
+    {
+      "id": "PBI-002",
+      "title": "Integrar assets binarios del handoff Metropol (branding + fotos + style)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como repo destino, quiero tener logo, icono, 29 fotos y liberty-pinned.json en public/, para que landing y home puedan referenciarlos sin 404.",
+      "acceptance": [
+        "public/metropol-logo.svg existe (~3.5 KB)",
+        "public/metropol-icon.png existe (~6 KB)",
+        "public/images/metropol/lineas/ tiene 26 archivos",
+        "public/images/metropol/flota/ tiene 3 archivos",
+        "public/styles/liberty-pinned.json existe",
+        "NDA: imágenes solo en repo privado destino"
+      ],
+      "notes": "Handoff PASO 1. Plan paso (b)."
+    },
+    {
+      "id": "PBI-003",
+      "title": "Copiar metropol.json verbatim a src/data/ y validar 29/29 paths",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como módulo de datos, quiero el JSON de líneas y flota en src/data/metropol.json sin reindentar, para respetar lines[].image y flota[].src.",
+      "acceptance": [
+        "src/data/metropol.json es JSON válido",
+        "Todos los lines[].image existen bajo public/",
+        "Todos los flota[].src existen bajo public/",
+        "Sin renombrar rutas de imagen (NDA constraint #2)"
+      ],
+      "notes": "Handoff PASO 2. Verificado: 26 lines + 3 flota, OK."
+    },
+    {
+      "id": "PBI-004",
+      "title": "Portar brand components (MetropolLogo, MetropolRose, FleetCarousel)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como UI, quiero los componentes de marca en src/components/brand/, para no duplicar SVGs inline en pages.",
+      "acceptance": [
+        "src/components/brand/metropol-logo.tsx exporta MetropolLogo, MetropolRose, METROPOL_COLORS, ROSE_PARTS",
+        "variant full | mono presente en ambos componentes",
+        "viewBox logo full = 0 0 719.16 178.87; rose = 0 0 82 178.87",
+        "ROSE_PARTS.green y .red son arrays separados",
+        "fleet-carousel.tsx con contrato FleetPhoto { src, title, caption }",
+        "typecheck sin errores nuevos en esos archivos"
+      ],
+      "notes": "Handoff PASO 3. FleetCarousel adaptado a DESIGN.MD + lucide-react."
+    },
+    {
+      "id": "PBI-005",
+      "title": "Copiar docs de diseño y branding a docs/metropol/",
+      "status": "done",
+      "priority": "P1",
+      "story": "Como siguiente agente, quiero las specs (rosa, usos-logo, home-doc, handoff) en docs/metropol/, para no tener que reabrirlas del ZIP.",
+      "acceptance": [
+        "docs/metropol/METROPOL-ROSA-DESIGN.md legible",
+        "docs/metropol/usos-logo.md existe",
+        "docs/metropol/LA-NUEVA-METROPOL.md existe",
+        "docs/metropol/home-documentation.md copiado del origen",
+        "docs/metropol/HANDOFF-LANDING-HOME-MCP.md copiado"
+      ],
+      "notes": "Handoff PASO 4. 05-reference no entra al runtime."
+    },
+    {
+      "id": "PBI-006",
+      "title": "Parchear layout + globals.css (keyframes, reduced-motion, favicon)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como app destino, quiero los keyframes mínimos (rose-glow, shine, drive, live-pulse) y favicon Metropol, para que home y landing no se vean rotos.",
+      "acceptance": [
+        "keyframes rutaba-rose-glow, rutaba-shine, rutaba-drive, rutaba-live-pulse definidos",
+        ".no-scrollbar definida (ya existía)",
+        "prefers-reduced-motion respetado en aura/shine",
+        "Decisión: Material Symbols NO se agrega; íconos en lucide-react",
+        "favicon/OG → metropol-icon.png"
+      ],
+      "notes": "Handoff PASO 5. Adaptación destino: lucide-react + DESIGN.MD (no MD3)."
+    },
+    {
+      "id": "PBI-007",
+      "title": "Portar dependencias del módulo Home (UI + hook + mocks)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como /home, quiero ArrivalCard, LineBadge, HorariosButton, useFavorites y mocks deterministas disponibles, para que la página compile sin imports rotos.",
+      "acceptance": [
+        "Componentes UI montables de forma aislada",
+        "useFavorites: favorites, isFavorite, add, remove, toggle — sin errores de tipo",
+        "Mocks deterministas (sin Math.random en render)",
+        "Persistencia favoritos en localStorage con key del destino",
+        "typecheck 0 errores nuevos"
+      ],
+      "notes": "Handoff PASO 6. Plan paso (c) COMPLETADO: use-favorites (rutaba_favoritos), line-badge, arrival-card, horarios-button, bottom-nav; tsc limpio."
+    },
+    {
+      "id": "PBI-008",
+      "title": "Mover mega-page de / a src/app/mapas/",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario, quiero que el mapa/mega-page viva en /mapas, para liberar / como landing de entrada.",
+      "acceptance": [
+        "src/app/mapas/page.tsx renderiza la mega-page actual sin regresiones",
+        "src/app/page.tsx ya no es la mega-page",
+        "Links internos hacia la mega-page apuntan a /mapas",
+        "typecheck + lint 0 errores nuevos",
+        "sin build (regla repo)"
+      ],
+      "notes": "Plan paso (d) COMPLETADO: src/app/mapas/page.tsx (tab default \"mapa\"), BottomNavBar home → Link /home, root page ya no es mega-page; tsc --noEmit limpio. GRILL-ME.md registra decisión previa SPA/tabs en / — revertida."
+    },
+    {
+      "id": "PBI-009",
+      "title": "Portar módulo Home a /home",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario, quiero un /home con header sticky, hero EN VIVO, paradas favoritas, alertas y BottomNav por rutas, para tener el dashboard de la app.",
+      "acceptance": [
+        "/home renderiza empty state con 0 favoritos",
+        "Con favoritos: hero ETA + cards + badges OK",
+        "Campana muestra contador real de alertas activas",
+        "Actualizar incrementa refreshKey y regenera ETAs",
+        "BottomNav navega por rutas (no tabs en memoria); ítem home activo",
+        "Rosa del dock respeta METROPOL-ROSA-DESIGN (aura violeta, no recolorea)",
+        "CTAs Material Symbols migrados a lucide-react",
+        "MD3 tokens migrados a DESIGN.MD (bg-canvas, text-ink, electric-blue)",
+        "typecheck + lint 0 errores nuevos; 0 requests 404"
+      ],
+      "notes": "Handoff PASO 8. Plan paso (c) COMPLETADO: src/app/home/page.tsx + UI components + use-favorites; tsc --noEmit limpio."
+    },
+    {
+      "id": "PBI-010",
+      "title": "Portar Landing a /",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como visitante, quiero una landing con hero, MetropolRose, features y CTA a /home, para entrar al demo con la identidad Metropol.",
+      "acceptance": [
+        "/ renderiza sin error de runtime",
+        "MetropolRose visible en hero (no 0×0)",
+        "Logo mono legible sobre gradiente",
+        "CTA primario navega a /home",
+        "CTA demo navega a /home",
+        "CTA techo Metropol (/metropol) solo si la ruta existe; si no, oculto o deshabilitado con TODO",
+        "0 requests 404; typecheck + lint 0 errores nuevos",
+        "prefers-reduced-motion respetado"
+      ],
+      "notes": "Plan paso (e) COMPLETADO: port desde colectivos-amba; lucide + DESIGN.MD; CTAs → /home y /mapas; teaser /metropol oculto con TODO (ruta no existe); scroll propio h-dvh (body overflow-hidden); tsc limpio."
+    },
+    {
+      "id": "PBI-011",
+      "title": "Integración branding transversal + cierre NDA",
+      "status": "done",
+      "priority": "P1",
+      "story": "Como repo, quiero que landing y home usen solo componentes de brand/, favicon/OG apunten a assets Metropol y no haya secretos fuera de private.",
+      "acceptance": [
+        "grep MetropolLogo|MetropolRose en src/app → sin SVG inline duplicado",
+        "favicon/OG apuntan a metropol-icon.png / metropol-logo.svg",
+        "fleet-carousel + metropol.json listos para /metropol futuro",
+        "git status sin paths NDA fuera de private",
+        "Inventario ZIP: 41 archivos ubicados o excluidos con criterio (05-reference = docs)"
+      ],
+      "notes": "COMPLETADO: MetropolLogo/MetropolRose en landing+home (SVG en page.tsx solo decorativo de ruta, no logo); borrado src/app/icon.svg (pisaba favicon); layout icons→metropol-icon.png + openGraph→metropol-logo.svg; manifest.ts y public/manifest.json rebrandeados (navy #1D2B4F, icons metropol-icon.png); 26+3 imágenes, JSON 0 missing, fleet-carousel OK; docs/metropol/ 5 archivos; inventario 41=4 brand+1 data+1 style+29 imgs+3 reference+3 root docs; git status solo paths destino (repo privado)."
+    },
+    {
+      "id": "PBI-012",
+      "title": "Smoke test manual del flujo / → /home → navegación",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como verificación final, quiero recorrer el camino feliz en el destino, para confirmar Definition of Done sin correr build.",
+      "acceptance": [
+        "/ y /home compilan y navegan entre sí",
+        "Branding full/mono correcto en ambos fondos",
+        "26+3 imágenes y JSON OK",
+        "Rosa respeta spec (viewBox, capas, aura, reduced-motion)",
+        "lint + typecheck en verde (sin build obligatorio)",
+        "Docs en docs/metropol/ para el siguiente agente",
+        "TODOs de rutas faltantes marcados en código, no escondidos (PBI-012 original; luego portadas /alertas, /alerta/[id], /parada/[id])",
+        "NDA intacto"
+      ],
+      "notes": "COMPLETADO (smoke estático, sin build): tsc --noEmit TSC_EXIT=0; rutas / , /home, /mapas presentes; CTAs landing→/home y /mapas; BottomNav unificado sin Perfil; branding La Nueva Metropol en titles/manifest/UI; TODOs marcados para /alertas /alerta/[id] /parada/[id] y teaser /metropol; docs/metropol/ OK; NDA en repo privado. lint rtk falla por parser JSON preexistente (no bloquea)."
+    },
+    {
+      "id": "PBI-013",
+      "title": "Portar /alertas, /alerta/[id], /parada/[id] y limpiar TODO(ruta)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario, quiero las rutas de alertas y detalle de parada sin 404, para que los CTAs de /home funcionen.",
+      "acceptance": [
+        "src/app/alertas/page.tsx existe y usa MOCK_ALERTS + lucide + tokens DESIGN.MD",
+        "src/app/alerta/[id]/page.tsx existe con informe simplificado (sin service-reports)",
+        "src/app/parada/[id]/page.tsx existe con arrivals hash + useFavorites",
+        "TODO(ruta) removidos de src/app/home/page.tsx",
+        "tsc --noEmit → TSC_EXIT=0"
+      ],
+      "notes": "Port adaptado desde colectivos-amba: lucide (no material-symbols), bg-canvas/ink/hairline (no MD3), BottomNav destino. /metropol queda fuera de scope (teaser landing oculto)."
+    },
+    {
+      "id": "PBI-014",
+      "title": "Fix flash de tema (FOUC + hydration mismatch)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario, quiero abrir la app y que NO parpadee de claro a oscuro, para que la primera impresión sea prolija (y no rompa React).",
+      "acceptance": [
+        "themeInitScript en layout.tsx pinta la clase real del tema en <html> ANTES de que React hidrate",
+        "ThemeProvider.resolvedTheme arranca en \"dark\" (idéntico en SSR y primer render del cliente)",
+        "El sync con document.documentElement recién ocurre en useEffect (post-hidratación)",
+        "Cero branchear sobre document dentro de useState initializer",
+        "Hard refresh en / no muestra frame en blanco ni mismatch de hydration"
+      ],
+      "notes": "Causa raíz: el initializer leía document.documentElement — en el servidor no hay document, en el cliente sí → React regeneraba el árbol. Solución en 3 piezas: script inline + valor SSR consistente + sync en effect. Archivos: src/app/layout.tsx, src/components/theme/ThemeProvider.tsx."
+    },
+    {
+      "id": "PBI-015",
+      "title": "Fix titileo del mapa WebGL en /mapas (backdrop-blur + seed fitBounds)",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario de /mapas, quiero abrir Modo Viaje o tipear un destino sin que el mapa atrás parpadee, para poder concentrarme en planificar el viaje.",
+      "acceptance": [
+        "Eliminado backdrop-blur de todos los overlays encima del canvas WebGL",
+        "Suprimido el fitBounds de seed al abrir Modo Viaje (pre-marca lastFocusKeyRef)",
+        "Handlers de selección resetean lastFocusKeyRef para no re-disparar",
+        "ResizeObserver → map.resize() coalesced vía rAF + check de tamaño",
+        "Debounce de búsqueda 300ms; Enter usa el geocoder en vivo",
+        "Contenedor del mapa en capa GPU (will-change / translateZ)"
+      ],
+      "notes": "Causa raíz doble: (a) backdrop-blur fuerza repaints caros del canvas WebGL, (b) fitBounds de seed + ResizeObserver sin coalescer entran en layout loop. Relacionado con el fix de hydration del PBI-014 (mismo síntoma de 'parpadeo')."
+    },
+    {
+      "id": "PBI-016",
+      "title": "Al tocar \"Ver\" en paradas: bajar modal a < mitad + flyTo a la parada",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario del modal de paradas, quiero tocar \"Ver\" y que el mapa vuele a esa parada y el modal baje a menos de la mitad de la pantalla, para poder ver la parada marcada en el mapa sin perder la lista.",
+      "acceptance": [
+        "LiveTransportBubble tiene estado half → maxHeight 40dvh al tocar Ver (< 50dvh)",
+        "Tap en el grip desde half vuelve a 58dvh (full); ciclo full → collapsed → full normal",
+        "stopFocusNonce se incrementa en handleSelectParada y re-dispara el flyTo aunque selectedStopId no cambie",
+        "MapCanvas flyTo usa el prop cameraBottomPadding directo (no el ref, que llegaba tarde)",
+        "cameraBottomPadding = 360 cuando hay parada seleccionada (sino 140 / 220 en modo Viaje)",
+        "DynamicMap propaga stopFocusNonce (spread de MapCanvasProps)",
+        "tsc --noEmit → TSC_EXIT=0"
+      ],
+      "notes": "Causa raíz: expanded era 58dvh (> mitad) y tapaba el stop; el effect de flyTo corría con padding ref desactualizado (140 en vez de 360); selectedStopId idéntico no re-disparaba el effect. Archivos: LiveTransportBubble.tsx, mapas/page.tsx, MapCanvas.tsx."
+    },
+    {
+      "id": "PBI-017",
+      "title": "Asistente del Home: intents deterministas para las 4 preguntas típicas del pasajero",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como pasajero, quiero tocar o escribir en el home preguntas como «¿cuándo llega el próximo colectivo?», «¿parada más cercana?», «¿cómo llego a X?» o «¿me da tiempo a caminar?» y obtener una respuesta real con los datos de la app, sin tener que aprender a navegar el mapa.",
+      "acceptance": [
+        "Barra en /home con caja de texto libre + 4 chips de pregunta sugerida (copy es-AR en ASSISTANT_CHIPS)",
+        "parseAssistantQuery clasifica next_arrival | nearest_stop | trip_plan | walk_timing | unknown (regex sobre texto normalizado sin tildes, priorizada walk>arrival>nearest>trip)",
+        "resolveAssistantQuery delega a servicios existentes: getArrivals (GPS live), findCandidateStops, resolveLocationPoint+planTrip, calculateWalkFeasibility",
+        "Destino no resuelto → clarify con candidatos, NUNCA al fallback Parque Centenario (regresión testuada en QA)",
+        "Número de línea (65/194) extraído de la pregunta y validado contra el catálogo",
+        "Hoja de respuestas fija sobre el dock en /home, colapsable por arrastre (useDragCollapse), aria-live, cierre por X",
+        "Refinamiento contextual: desde nearby-stops, «¿Cuándo llega?» fija paradaRef y re-emite next_arrival sobre esa parada",
+        "Deep-links: /mapas?trip=1&destino=<n> precarga destino si resuelve; /mapas?parada=<id> enfoca la parada (setState diferido a rAF); CTA viaje y Ver todas las llegadas → /parada/[id]",
+        "SIMULATED_USER_LOCATION + getUserLocation() en src/lib/config/user-location.ts como fuente única (TODO(geo-real) para navigator.geolocation)",
+        "Feed GPS 1 Hz en /home coherente con /mapas (subscribeToPositions)",
+        "npx tsx scripts/qa-assistant-intents.mts 18/18 en verde",
+        "tsc --noEmit = 0 errores; eslint sin errores nuevos en archivos tocados; next build OK; smoke /home y /mapas → 200"
+      ],
+      "notes": "Sin LLM ni backend: dominio cerrado + servicios existentes = parser determinista auditable. Nuevos: assistant-intent-service.ts, AssistantBar, AssistantAnswerSheet, AssistantAnswerCard, user-location.ts, qa-assistant-intents.mts. Docs: docs/Asistente-Home.md + .docx. Cambios en LOCAL sobre feat/home-assistant-intents sin commitear (revisión en equipo antes de push). Deuda anotada: /parada/[id] muestra hash-mock vs live del asistente."
+    },
+    {
+      "id": "PBI-018",
+      "title": "Modo Viaje: botón Limpiar (Eraser), X al borde derecho y jerarquía de ESC",
+      "status": "done",
+      "priority": "P1",
+      "story": "Como usuario del planificador, quiero limpiar origen/destino sin cerrar el modo viaje, tener el cerrar (X) donde se espera y que ESC cancele primero lo último que toqué, para no perder el trabajo al querer corregir un punto.",
+      "acceptance": [
+        "handleClearTripMode borra origin/destination SIN salir de isTripMode",
+        "ViajeHeader: grupo de acciones con Eraser (secundaria, w-8 h-8, disabled+opacidad si ambos campos vacíos) y X al borde derecho (convención de cierre)",
+        "Botón Limpiar wireado vía prop onClear desde mapas/page.tsx",
+        "ESC dentro de un campo solo cierra el campo (stopPropagation), no el modo viaje",
+        "ESC global con jerarquía: cancelar fijado en mapa → salir de Modo Viaje (effect con guardas isTripMode/mapPickTarget)",
+        "tsc --noEmit = 0 errores; Impeccable detect = []",
+        "Rosa del dock: ring ON electric-blue/40 (claro) o white (oscuro) ring-[5px]; aura violeta fija"
+      ],
+      "notes": "Fix post-review del flujo doble-tap → limpiar → ESC/X. Archivos: ViajeHeader.tsx, mapas/page.tsx, bottom-nav.tsx, globals.css. Eraser/coords luego pasaron a usar SIMULATED_USER_LOCATION (PBI-017). Local sin commitear en feat/home-assistant-intents."
+    },
+    {
+      "id": "PBI-019",
+      "title": "Flujo del asistente en /inicio: permiso de ubicación, selector de lugar y persistencia demo-reset",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como pasajero que toca «¿Cuándo llega el próximo?» en el inicio, quiero que primero se me pida permiso de ubicación, después elegir la avenida o lugar donde estoy esperando, y recién ahí ver los 1·2·3 colectivos con su llegada; si cierro y re-abro el botón, la misma información debe volver (con datos frescos), y si recargo el navegador la demo debe poder repetirse con otros destinos.",
+      "acceptance": [
+        "Los 3 chips de ubicación (next_arrival, nearest_stop, walk_timing) NO muestran la hoja directa: primero modal de permiso de ubicación",
+        "Modal de permiso decorativo con copy honesto de demo (ubicación simulada Parque Centenario); punto único TODO(geo-real) intacto en user-location.ts",
+        "Aceptado el permiso → selector tipo combobox con autocompletado de avenidas (STREET_INDEX) y lugares mockeados (KNOWN_POIS/paradas) vía searchLocations; quick chips para elegir sin tipear; Enter=primer match; Escape=cancelar",
+        "Elegido el lugar → hoja con 1·2·3 colectivos/paradas y ETA en vivo; si el lugar es una parada exacta (stopId), se usa como referencia directa",
+        "Chip activo es toggle: oculta la hoja SIN borrar contexto; re-tocarlo muestra la misma info persistida con ETAs refrescados",
+        "Barra de la hoja muestra el lugar en uso como botón «Cambiar lugar» (reabre el selector sin repetir el permiso)",
+        "Contexto persistido en localStorage rutaba_asistente_v1 (consentido, lugar, lastQuery, savedAt) sobre store puro + hook useSyncExternalStore (patrón use-favorites, SSR-safe)",
+        "Refresh del navegador (F5, Navigation Timing type==='reload') limpia la sesión para repetir la demo con otros destinos; navegación client-side /inicio↔/mapas la conserva",
+        "TTL 12 h sobre savedAt",
+        "trip_plan conserva su atajo de destino sin gate de permiso; texto libre pasa por el mismo gate que los chips",
+        "Refresco live 1 Hz por respuesta DERIVADA en useMemo (sin setState dentro de effects)",
+        "tsc --noEmit = 0; eslint sin errores nuevos en archivos del feature; qa-assistant-intents sigue 18/18 (parser/resolver intactos); Impeccable detect = []; smoke /inicio = 200"
+      ],
+      "notes": "Decisiones del usuario: permiso decorativo con demo simulada; alcance = 3 chips de ubicación; persistencia = contexto + datos live con clear-on-reload para iterar destinos en la demo. Nuevos: src/lib/assistant-session.ts, src/hooks/use-assistant-session.ts, LocationConsentModal.tsx, PlaceSelector.tsx. Modificados: inicio/page.tsx (máquina de fases idle|consent|selector|answer), AssistantAnswerSheet.tsx (contextLabel + onChangePlace). Docs: docs/Asistente-Flujo-Inicio.md + .docx. Cambios en LOCAL sobre feat/home-assistant-intents, sin commitear (revisión en equipo)."
+    },
+    {
+      "id": "PBI-020",
+      "title": "Asistente: wizard 3 pasos (ubicación→paradas→destino), header responsive y transición al mapa",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como pasajero que quiere planificar un viaje desde el inicio, quiero un flujo guiado: confirmar mi ubicación, elegir la parada cercana donde voy a esperar y definir el destino; y recién ahí ver la lista de colectivos, la ruta sugerida y los minutos. Al tocar una opción, quiero que el mapa se cierre del modal, enfoque el recorrido y entre en Modo Viaje con la línea y las unidades resaltadas.",
+      "acceptance": [
+        "§1 La pill 'Cambiar lugar' del sheet no deforma el header en mobile: max-width relativo, nowrap+ellipsis+title, shrink, altura táctil 40px; barra de título flex-wrap (2 filas <~480px); X y colapsar con targets separados (w-9)",
+        "§2 Paso 1: el wizard muestra la ubicación confirmada (post-permiso PBI-019) con 'Cambiar ubicación' → selector de lugar → reanuda el wizard con el nuevo punto",
+        "§2 Paso 2: lista de 3 paradas cercanas (distancia + caminata + badges de líneas) vía nearbyStopsFor; elegir una avanza al paso 3",
+        "§2 Paso 3: '¿A dónde querés ir desde <parada>?' con input + sugerencias en vivo del geocoder; Enter valida el primer match",
+        "§2 Modal final: respuesta compuesta trip-guide = viaje sugerido (líneas, transbordos, minutos) + 1·2·3 llegadas reales EN la parada elegida; destino no resuelto → clarify con candidatos (regla de oro intacta)",
+        "§2 Toggle y persistencia respetados: session.paradaSelId + lastQuery.originStopId; re-tocar el chip reabre la guía con ETAs frescos; F5 limpia; cambiar de lugar invalida la parada",
+        "§3 Tocar un colectivo de la lista navega a /mapas?parada=<id>&linea=<id> (parada enfocada + línea preseleccionada: unidades visibles y traza resaltada)",
+        "§3 CTA del viaje: cierra la hoja (fase idle) y navega a /mapas?trip=1&origen=<stopId>&destino=<nombre>&linea=<id>&ramal=<id>; /mapas consume los 4 params nuevos con null-checks y los limpia de la URL",
+        "qa-assistant-intents extendido: 21/21 en verde (agrega nearbyStopsFor, trip-guide ok, trip-guide destino imposible → clarify)",
+        "tsc --noEmit = 0; eslint sin errores nuevos en archivos del feature; Impeccable detect = []; next build OK; smoke /inicio y deep-link trip con params = 200"
+      ],
+      "notes": "Nuevos: AssistantWizard.tsx (modal 3 pasos con stepper, reset-on-open por adjusting-state-in-render). Modificados: assistant-intent-service.ts (kind trip-guide + resolveTripGuide + nearbyStopsFor + ctx.originPoint + query.originStopId, ramas previas intactas), assistant-session.ts (+paradaSelId), inicio/page.tsx (gate del wizard + onOpenTripOnMap), AssistantAnswerSheet/Card (header responsive, filas tocables, render trip-guide, tripMapUrl exportado), mapas/page.tsx (params origen/linea/ramal). Docs: docs/Asistente-Wizard-3-Pasos.md. Local en feat/home-assistant-intents, sin commitear."
+    },
+    {
+      "id": "PBI-021",
+      "title": "Fix post-demo: el wizard nunca saltea el paso Destino + cabecera del sheet en una fila",
+      "status": "done",
+      "priority": "P0",
+      "story": "Como usuario que prueba la demo, al tocar '¿Cómo llego a…?' la app SIEMPRE debe pedirme el destino en el paso 3 (con el dato anterior precargado si ya había completado el wizard), y en la hoja de respuesta la pill del lugar debe quedar a la izquierda, a la misma altura que minimizar y X, sin la etiqueta 'Asistente'.",
+      "acceptance": [
+        "Root cause: openTripWizard tenía un atajo que, con guía previa persistida (paradaSelId + lastQuery trip_plan con destino), mostraba el resultado viejo y se salteaba el wizard; eliminado",
+        "El chip trip_plan siempre abre el wizard tras el gate de permiso/lugar (PBI-019 intacto)",
+        "Reanudación honesta: si existe guía previa, el wizard abre DIRECTO en el paso 3 'Destino' con parada y destino cargados en el input (confirmar o cambiar); con flecha de vuelta a pasos 1/2 también precargados",
+        "AssistantWizard acepta initialStep/initialParadaId/initialDestino aplicados en el reset-on-open (adjusting-state-in-render, sin setState en effect)",
+        "Cabecera del AssistantAnswerSheet en UNA fila (h-[52px], flex-nowrap): pill del lugar a la izquierda con icono + ellipsis (sin texto 'Cambiar' redundante, el aria-label y title lo cubren), y a la misma altura a la derecha los botones minimizar (⌄) y cerrar (X); etiqueta 'Asistente' eliminada",
+        "tsc --noEmit = 0; eslint 0 errores en AssistantWizard/Sheet/inicio; Impeccable detect = []; smoke /inicio = 200"
+      ],
+      "notes": "Reportado al probar la demo en vivo: 'no me pidió todavía el lugar del destino'. Detección: el shortcut de reapertura del PBI-019/chip entraba en conflicto con el wizard nuevo (PBI-020); la solución conserva ambas reglas: toggle de chip sigue mostrando la última hoja, pero abrir el wizard siempre pregunta destino (precargado = 1 toque). Archivos: inicio/page.tsx (openTripWizard + wizardResumeGuide + props al wizard), AssistantWizard.tsx (props initial*), AssistantAnswerSheet.tsx (fila única de cabecera). Local en feat/home-assistant-intents, sin commitear."
+    }
+  ]
+}

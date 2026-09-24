@@ -11,6 +11,8 @@ export interface LocationPoint {
   stopId?: string; // Presente si coincide con una parada de transporte
   isArbitrary?: boolean; // True si es una dirección o coordenada libre
   source?: "text" | "map" | "simulated" | "poi";
+  /** Encuadre sugerido (calle/landmark) para fitBounds al elegir el punto. */
+  focusBounds?: [[number, number], [number, number]];
 }
 
 export interface WalkingLeg {

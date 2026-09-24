@@ -77,7 +77,7 @@ export default function LineSelectorBar({
         onClick={handleMainButtonClick}
         title={hasActiveContent ? "Ocultar menú y limpiar mapa" : "Ver lista de líneas disponibles"}
         aria-label={hasActiveContent ? "Ocultar menú y limpiar mapa" : "Ver lista de líneas disponibles"}
-        className={`w-10 h-10 rounded-full text-xs font-bold transition-all shrink-0 flex items-center justify-center touch-manipulation shadow-md backdrop-blur-md ${
+        className={`w-10 h-10 rounded-full text-xs font-bold transition-all shrink-0 flex items-center justify-center touch-manipulation shadow-md ${
           hasActiveContent
             ? "bg-ink text-canvas ring-2 ring-ink ring-offset-2 ring-offset-canvas scale-105"
             : "bg-canvas/90 text-text-muted border border-hairline hover:bg-canvas-soft hover:text-ink"
@@ -149,7 +149,7 @@ export default function LineSelectorBar({
                           className={`w-7 h-7 rounded-full transition-all flex items-center justify-center touch-manipulation shadow-xs ${
                             isRamalSelected
                               ? "bg-ink text-canvas font-bold ring-[1px] ring-ink/80 scale-105 z-10"
-                              : "bg-canvas/90 backdrop-blur-md text-ink border border-hairline hover:border-ink/60 hover:bg-canvas-soft"
+                              : "bg-canvas/95 text-ink border border-hairline hover:border-ink/60 hover:bg-canvas-soft"
                           }`}
                         >
                           {/* Letra del ramal con color identificatorio */}

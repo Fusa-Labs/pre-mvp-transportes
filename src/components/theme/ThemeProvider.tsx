@@ -26,10 +26,16 @@ export function ThemeProvider({
   defaultTheme?: Theme;
 }) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
+  // SSR siempre pinta "dark" (mismo valor en server y primer render del
+  // client). Leer classList en el initializer hidrata distinto y React
+  // rechaza el árbol (ThemeToggle: Sun/Moon + title/aria-label).
+  // themeInitScript ya aplicó la clase real en <html> antes de hydratar;
+  // el primer useEffect solo alinea el estado React con ese DOM.
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
   const [mounted, setMounted] = useState(false);
 
-  // Inicializar estado desde localStorage si existe
+  // Inicializar estado desde localStorage si existe + sync resolved con el
+  // DOM que ya dejó themeInitScript (sin re-escribir la clase en este tick).
   useEffect(() => {
     try {
       const stored = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
@@ -39,6 +45,9 @@ export function ThemeProvider({
     } catch {
       // Ignorar restricciones en iframes o modo incógnito
     }
+    setResolvedTheme(
+      document.documentElement.classList.contains("dark") ? "dark" : "light",
+    );
     setMounted(true);
   }, []);
 

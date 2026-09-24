@@ -1,5 +1,5 @@
 /**
- * Motor de GPS Simulado — Colectivos AMBA
+ * Motor de GPS Simulado — La Nueva Metropol
  *
  * Simulación de alta fidelidad para Línea 65 (La Nueva Metropol S.A.):
  * - 24 unidades activas reales simultáneas navegando sobre la traza oficial de 36.06 km.
