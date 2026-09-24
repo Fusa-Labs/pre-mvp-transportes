@@ -188,7 +188,7 @@ export default function BottomSheetPanel({
             ) : (
               <div className="flex items-center gap-2 text-xs font-semibold text-ink">
                 <BusFront className="w-4 h-4 text-text-muted" />
-                <span>Monitoreo de Transporte AMBA</span>
+                <span>Monitoreo La Nueva Metropol</span>
               </div>
             )}
           </div>

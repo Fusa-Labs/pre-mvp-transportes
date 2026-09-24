@@ -1,0 +1,750 @@
+"use client";
+
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import DynamicMap from "@/components/map/DynamicMap";
+import LineSelectorBar, { getRamalLetter, getRamalDisplayName } from "@/components/ui-shell/LineSelectorBar";
+import LiveTransportBubble from "@/components/ui-shell/LiveTransportBubble";
+import { BottomNav } from "@/components/ui/bottom-nav";
+import ViajeHeader from "@/components/viaje/ViajeHeader";
+import ViajePanel from "@/components/viaje/ViajePanel";
+import { TransportService } from "@/lib/services/transport-service";
+import { TripPlannerService } from "@/lib/services/trip-planner-service";
+import { subscribeToPositions } from "@/mock/live";
+import { MOCK_LINES, MOCK_ROUTES, MOCK_STOPS } from "@/mock/data";
+import { getRouteTrack, stopsAlongRoute, busProgressOn } from "@/lib/map/route-progress";
+import type { VehiclePosition } from "@/lib/data-service";
+import type { CameraMode } from "@/lib/map/camera-controller";
+import type { MapFocusRequest, PlannerMapPoints, PlannerMapPulse } from "@/components/map/MapCanvas";
+import { Parada } from "@/types/transport";
+import { TripOption, LocationPoint } from "@/types/trip-planner";
+import { Navigation, RotateCcw, Eye, X, Search } from "lucide-react";
+import { SIMULATED_USER_LOCATION, SIMULATED_LOCATION_LABEL } from "@/lib/config/user-location";
+import { useTheme } from "@/components/theme/ThemeProvider";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
+
+const ALL_LINE_IDS = MOCK_LINES.map((l) => l.id);
+
+export default function TransportesAppPage() {
+  const { resolvedTheme } = useTheme();
+  const [isLineMenuOpen, setIsLineMenuOpen] = useState<boolean>(false);
+  const lineas = useMemo(() => TransportService.getLineas(), []);
+  const paradas = useMemo(() => TransportService.getParadas(), []);
+  const alertas = useMemo(() => TransportService.getAlertas(), []);
+
+  const [positions, setPositions] = useState<VehiclePosition[]>([]);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedLineaId, setSelectedLineaId] = useState<string | null>(null);
+  const [selectedRamalId, setSelectedRamalId] = useState<string | null>(null);
+  const [selectedParada, setSelectedParada] = useState<Parada | null>(null);
+  const [stopFocusNonce, setStopFocusNonce] = useState(0);
+  const [selectedVehiculo, setSelectedVehiculo] = useState<VehiclePosition | null>(null);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("overview");
+
+  // ─── Estado del Modo "Viaje" (Ubicaciones Arbitrarias / Paradas / POIs) ──
+  const [isTripMode, setIsTripMode] = useState<boolean>(false);
+  const [originLocation, setOriginLocation] = useState<LocationPoint | null>(null);
+  const [destinationLocation, setDestinationLocation] = useState<LocationPoint | null>(null);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [mapPickTarget, setMapPickTarget] = useState<"origin" | "destination" | null>(null);
+
+  // Suscripción al feed GPS en tiempo real (1 Hz) de todas las unidades
+  useEffect(() => {
+    const unsubscribe = subscribeToPositions(ALL_LINE_IDS, (latestPositions) => {
+      setPositions(latestPositions);
+
+      setSelectedVehiculo((current) => {
+        if (!current) return null;
+        const updated = latestPositions.find(
+          (p) => p.lineId === current.lineId && p.unitId === current.unitId,
+        );
+        return updated || current;
+      });
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const selectedLinea = useMemo(() => {
+    return selectedLineaId ? lineas.find((l) => l.id === selectedLineaId) || null : null;
+  }, [selectedLineaId, lineas]);
+
+  const selectedRamal = useMemo(() => {
+    if (!selectedLinea || !selectedRamalId) return null;
+    return selectedLinea.ramalesDetalle?.find((r) => r.id === selectedRamalId) || null;
+  }, [selectedLinea, selectedRamalId]);
+
+  const regularHighlightLines = useMemo(() => {
+    if (selectedRamalId) return [selectedRamalId];
+    if (selectedLineaId) return [selectedLineaId];
+    return []; // Ocultas por defecto: trazas invisibles hasta que el usuario elija línea o ramal
+  }, [selectedLineaId, selectedRamalId]);
+
+  const filteredPositions = useMemo(() => {
+    if (selectedRamalId) {
+      return positions.filter((p) => p.ramalId === selectedRamalId);
+    }
+    if (selectedLineaId) {
+      return positions.filter((p) => p.lineId === selectedLineaId);
+    }
+    return []; // Ocultos por defecto: ningún colectivo en el mapa hasta que se seleccione línea o ramal
+  }, [positions, selectedLineaId, selectedRamalId]);
+
+  const selectedKey = useMemo(() => {
+    return selectedVehiculo ? `${selectedVehiculo.lineId}-${selectedVehiculo.unitId}` : null;
+  }, [selectedVehiculo]);
+
+  const llegadas = useMemo(() => {
+    if (!selectedParada) return [];
+    return TransportService.getLlegadasPorParada(selectedParada.id, filteredPositions);
+  }, [selectedParada, filteredPositions]);
+
+  const timelineStops = useMemo(() => {
+    if (!selectedVehiculo) return [];
+    const coords = MOCK_ROUTES[selectedVehiculo.lineId];
+    if (!coords || coords.length < 2) return [];
+    const track = getRouteTrack(selectedVehiculo.lineId, coords);
+    if (!track) return [];
+    const lineStops = MOCK_STOPS.filter((s) => s.lineIds.includes(selectedVehiculo.lineId));
+    return stopsAlongRoute(track, lineStops);
+  }, [selectedVehiculo]);
+
+  const busProgress = useMemo(() => {
+    if (!selectedVehiculo) return 0;
+    const coords = MOCK_ROUTES[selectedVehiculo.lineId];
+    if (!coords || coords.length < 2) return 0;
+    const track = getRouteTrack(selectedVehiculo.lineId, coords);
+    if (!track) return 0;
+    return busProgressOn(track, { lng: selectedVehiculo.lng, lat: selectedVehiculo.lat });
+  }, [selectedVehiculo]);
+
+  const busAlongM = useMemo(() => {
+    if (!selectedVehiculo) return 0;
+    const coords = MOCK_ROUTES[selectedVehiculo.lineId];
+    if (!coords || coords.length < 2) return 0;
+    const track = getRouteTrack(selectedVehiculo.lineId, coords);
+    if (!track) return 0;
+    return track.project(selectedVehiculo.lng, selectedVehiculo.lat).alongM;
+  }, [selectedVehiculo]);
+
+  // ─── Información Contextual del Colectivo Seleccionado ──────────────
+  const selectedVehicleInfo = useMemo(() => {
+    if (!selectedVehiculo) return null;
+    const linea = lineas.find((l) => l.id === selectedVehiculo.lineId) || null;
+    // La información del ramal refleja el colectivo seleccionado, sin quedar atada a un filtro previo
+    const ramal = linea?.ramalesDetalle?.find((r) => r.id === selectedVehiculo.ramalId) || null;
+
+    let nextStopName: string | null = null;
+    let minutesToNextStop: number | null = null;
+
+    if (timelineStops && timelineStops.length > 0) {
+      const next = timelineStops.find((s) => s.alongM > busAlongM) || timelineStops[timelineStops.length - 1];
+      if (next) {
+        nextStopName = next.name;
+        const distM = Math.max(0, next.alongM - busAlongM);
+        const speedKmh = selectedVehiculo.speed && selectedVehiculo.speed > 5 ? selectedVehiculo.speed : 18;
+        minutesToNextStop = Math.max(1, Math.round(distM / ((speedKmh * 1000) / 60)));
+      }
+    }
+
+    const unitNumber = selectedVehiculo.unitId.replace(/^[a-zA-Z]-?/, "");
+
+    return {
+      linea,
+      ramal,
+      unitNumber,
+      nextStopName,
+      minutesToNextStop,
+    };
+  }, [selectedVehiculo, lineas, timelineStops, busAlongM]);
+
+  // ─── Planificación de Viaje Reactiva Basada en Motor Real ────────────
+  const tripOptions = useMemo(() => {
+    if (!originLocation || !destinationLocation) return [];
+    return TripPlannerService.planTrip(originLocation, destinationLocation);
+  }, [originLocation, destinationLocation]);
+
+  const selectedTrip = useMemo(() => {
+    if (tripOptions.length === 0) return null;
+    return tripOptions.find((t: TripOption) => t.id === selectedTripId) || tripOptions[0] || null;
+  }, [tripOptions, selectedTripId]);
+
+  // Si cambia el trip, derivar el paso activo asegurando que pertenezca a la opción actual.
+  const activeStepId = useMemo(() => {
+    if (!selectedTrip || !selectedStepId) return null;
+    return selectedTrip.steps.some((s) => s.id === selectedStepId) ? selectedStepId : null;
+  }, [selectedTrip, selectedStepId]);
+
+  const effectiveHighlightLines = useMemo(() => {
+    if (isTripMode && selectedTrip) {
+      return selectedTrip.highlightLines;
+    }
+    return regularHighlightLines;
+  }, [isTripMode, selectedTrip, regularHighlightLines]);
+
+  const plannerPoints: PlannerMapPoints | null = useMemo(() => {
+    if (!isTripMode) return null;
+    return {
+      origin: originLocation ? { lat: originLocation.lat, lng: originLocation.lng } : null,
+      destination: destinationLocation
+        ? { lat: destinationLocation.lat, lng: destinationLocation.lng }
+        : null,
+    };
+  }, [isTripMode, originLocation, destinationLocation]);
+
+  const plannerPulse: PlannerMapPulse | null = useMemo(() => {
+    if (!isTripMode || !selectedTrip?.transferStopCoords) return null;
+    return {
+      lat: selectedTrip.transferStopCoords.lat,
+      lng: selectedTrip.transferStopCoords.lng,
+      color: selectedTrip.transferStopCoords.color || "#06B6D4",
+    };
+  }, [isTripMode, selectedTrip]);
+
+  /** Encuadre al elegir origen/destino (geocoder) cuando aún no hay trip. */
+  const selectionFocusNonce = useRef(0);
+  const lastFocusKeyRef = useRef<string | null>(null);
+
+  const focusRequest: MapFocusRequest | null = useMemo(() => {
+    if (!isTripMode) return null;
+
+    if (!selectedTrip) {
+      // Sin trip aún: volar al punto más reciente elegido (origen/destino)
+      const target = destinationLocation ?? originLocation;
+      if (!target) return null;
+      const key = `${target.name}|${target.lat.toFixed(5)}|${target.lng.toFixed(5)}`;
+      if (lastFocusKeyRef.current === key) return null;
+      lastFocusKeyRef.current = key;
+      selectionFocusNonce.current += 1;
+      const bounds =
+        target.focusBounds ??
+        ([
+          [target.lng - 0.004, target.lat - 0.004],
+          [target.lng + 0.004, target.lat + 0.004],
+        ] as [[number, number], [number, number]]);
+      return { bounds, nonce: selectionFocusNonce.current, bottomPadding: 220 };
+    }
+
+    // Si hay un paso seleccionado, enfocar su geometría en vez del trip entero.
+    if (activeStepId) {
+      const step = selectedTrip.steps.find((s) => s.id === activeStepId);
+      const leg = step?.legIndex !== undefined ? selectedTrip.legs[step.legIndex] : undefined;
+      const coords = leg?.segmentCoordinates;
+      if (coords && coords.length >= 2) {
+        let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+        for (const [lng, lat] of coords) {
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        }
+        // Padding mínimo para que el segmento no quede pegado al borde.
+        const padLng = Math.max((maxLng - minLng) * 0.3, 0.004);
+        const padLat = Math.max((maxLat - minLat) * 0.3, 0.004);
+        const nonce = `${selectedTrip.id}|${activeStepId}`.split("").reduce((acc, c) => acc + c.charCodeAt(0), 1);
+        return {
+          bounds: [[minLng - padLng, minLat - padLat], [maxLng + padLng, maxLat + padLat]],
+          nonce,
+          bottomPadding: 220,
+        };
+      }
+    }
+    const nonce = selectedTrip.id
+      .split("")
+      .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 1);
+    return {
+      bounds: selectedTrip.bounds,
+      nonce,
+      bottomPadding: 220,
+    };
+  }, [isTripMode, selectedTrip, activeStepId, originLocation, destinationLocation]);
+
+  /** Selección explícita del usuario → limpia la clave de focus para que
+   *  el geocoder pueda re-encuadrar (el seed de apertura no). */
+  const handleSelectOrigin = useCallback((loc: LocationPoint) => {
+    lastFocusKeyRef.current = null;
+    setOriginLocation(loc);
+  }, []);
+
+  const handleSelectDestination = useCallback((loc: LocationPoint) => {
+    lastFocusKeyRef.current = null;
+    setDestinationLocation(loc);
+  }, []);
+
+  const handleStartMapPick = useCallback((target: "origin" | "destination") => {
+    setMapPickTarget(target);
+    setIsLineMenuOpen(false);
+  }, []);
+
+  const handleCancelMapPick = useCallback(() => {
+    setMapPickTarget(null);
+  }, []);
+
+  const handleMapPick = useCallback(
+    (lngLat: [number, number]) => {
+      if (!mapPickTarget) return;
+      const [lng, lat] = lngLat;
+      const point = TripPlannerService.createMapLocationPoint(
+        lat,
+        lng,
+        mapPickTarget === "origin" ? "Origen" : "Destino"
+      );
+      if (mapPickTarget === "origin") {
+        lastFocusKeyRef.current = null;
+        setOriginLocation(point);
+      } else {
+        lastFocusKeyRef.current = null;
+        setDestinationLocation(point);
+      }
+      setMapPickTarget(null);
+    },
+    [mapPickTarget]
+  );
+
+  const handleSwapPoints = useCallback(() => {
+    lastFocusKeyRef.current = null;
+    setOriginLocation(destinationLocation);
+    setDestinationLocation(originLocation);
+  }, [originLocation, destinationLocation]);
+
+  const handleClearTripMode = useCallback(() => {
+    setOriginLocation(null);
+    setDestinationLocation(null);
+  }, []);
+
+  const handleCloseTripMode = useCallback(() => {
+    setIsTripMode(false);
+  }, []);
+
+  // ESC con jerarquía: cancelar "fijar en mapa" → salir de Modo Viaje.
+  // Si el ESC se originó en un campo del ViajeHeader, ya hizo stopPropagation allí.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !isTripMode) return;
+      if (mapPickTarget) {
+        setMapPickTarget(null);
+        return;
+      }
+      handleCloseTripMode();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isTripMode, mapPickTarget, handleCloseTripMode]);
+
+  /** Al abrir Modo Viaje, el origen simulado es real (no solo texto de UI).
+   *  Pre-marca lastFocusKeyRef para que el seed NO dispare fitBounds
+   *  (evita salto de cámara al abrir el modal). */
+  const handleOpenTripMode = useCallback(() => {
+    setIsTripMode(true);
+    setOriginLocation((prev) => {
+      if (prev) return prev;
+      const seed = TripPlannerService.resolveLocationPoint(SIMULATED_USER_LOCATION.name);
+      if (seed) {
+        lastFocusKeyRef.current = `${seed.name}|${seed.lat.toFixed(5)}|${seed.lng.toFixed(5)}`;
+      }
+      return seed ?? prev;
+    });
+  }, []);
+
+  // Doble tap de la rosa desde otra ruta navega con ?trip=1: abrir Modo Viaje al montar.
+  // ?trip=1&destino=<nombre> (asistente del home): abre el modo y precarga el destino.
+  // ?trip=1&origen=<stopId|nombre>&linea=<id>&ramal=<id> (wizard PBI-020 §3):
+  // además fija el origen real (la parada del wizard) y preselecciona línea/ramal
+  // para que sus unidades queden visibles y la traza resaltada desde el primer frame.
+  // window.location en vez de useSearchParams → sin <Suspense>, idempotente, y limpiamos
+  // la query para que cerrar el modo no lo reabra en un futuro remount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("trip") !== "1") return;
+    handleOpenTripMode();
+    const destino = (params.get("destino") ?? "").trim();
+    if (destino) {
+      // null-check explícito: un destino no resuelto NO debe caer al fallback
+      // de Parque Centenario; simplemente no se precarga nada.
+      const dest = TripPlannerService.resolveLocationPoint(destino);
+      if (dest) {
+        lastFocusKeyRef.current = null;
+        setDestinationLocation(dest);
+      }
+    }
+    const origen = (params.get("origen") ?? "").trim();
+    if (origen) {
+      const orig = TripPlannerService.resolveLocationPoint(origen);
+      if (orig) setOriginLocation(orig);
+    }
+    const lineaId = params.get("linea");
+    if (lineaId && lineaId.startsWith("line-")) {
+      setSelectedLineaId(lineaId);
+      const ramalId = params.get("ramal");
+      if (ramalId) setSelectedRamalId(ramalId);
+    }
+    const url = new URL(window.location.href);
+    for (const key of ["trip", "destino", "origen", "linea", "ramal"]) {
+      url.searchParams.delete(key);
+    }
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }, [handleOpenTripMode]);
+
+  const handleToggleLineMenu = useCallback(() => {
+    setIsLineMenuOpen((prev) => !prev);
+  }, []);
+
+  const handleSelectParada = useCallback((parada: Parada) => {
+    setSelectedParada(parada);
+    setSelectedVehiculo(null);
+    setCameraMode("overview");
+    setIsLineMenuOpen(true);
+    setStopFocusNonce((n) => n + 1);
+  }, []);
+
+  // ?parada=<id> desde el asistente del home: enfoca la parada y abre el bubble de llegadas.
+  // El setState se difiere a un rAF: así no dispara cascadas de render en el mount
+  // (regla react-hooks/set-state-in-effect) y sigue corriendo post-hidratación.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stopId = params.get("parada");
+    if (!stopId) return;
+    const stop = TripPlannerService.getStopById(stopId);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("parada");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (!stop) return;
+    const raf = window.requestAnimationFrame(() => handleSelectParada(stop));
+    return () => window.cancelAnimationFrame(raf);
+  }, [handleSelectParada]);
+
+  const handleSelectStopById = useCallback((stopId: string) => {
+    if (!stopId) {
+      setSelectedParada(null);
+      return;
+    }
+    const found = paradas.find((p) => p.id === stopId);
+    if (found) {
+      setSelectedParada((prev) => (prev?.id === stopId ? null : found));
+      setSelectedVehiculo(null);
+      setIsLineMenuOpen(true);
+    } else {
+      setSelectedParada(null);
+    }
+  }, [paradas]);
+
+  const handleSelectLinea = useCallback((lineaId: string | null) => {
+    setSelectedLineaId(lineaId);
+    setSelectedRamalId(null);
+    setSelectedVehiculo(null);
+    setSelectedParada(null);
+    setCameraMode("overview");
+  }, []);
+
+  const handleSelectRamal = useCallback((ramalId: string | null) => {
+    setSelectedRamalId(ramalId);
+    setSelectedVehiculo(null);
+    setSelectedParada(null);
+  }, []);
+
+  const handleBusSelect = useCallback((pos: VehiclePosition | null) => {
+    setSelectedVehiculo(pos);
+    if (pos) {
+      setSelectedLineaId(pos.lineId);
+      // Al seleccionar un colectivo, se aísla exclusivamente su ramal y sus unidades
+      setSelectedRamalId(pos.ramalId || null);
+      setSelectedParada(null);
+      setIsLineMenuOpen(false);
+      setCameraMode("follow-vehicle");
+    } else {
+      setCameraMode("overview");
+    }
+  }, []);
+
+  const handleToggle3D = useCallback(() => {
+    setCameraMode((prev) => (prev === "navigation-vehicle" ? "follow-vehicle" : "navigation-vehicle"));
+  }, []);
+
+  const handleResetCamera = useCallback(() => {
+    setSelectedLineaId("line-65");
+    setSelectedRamalId(null);
+    setSelectedVehiculo(null);
+    setSelectedParada(null);
+    setCameraMode("overview");
+  }, []);
+
+  const hasActivePill = Boolean(selectedVehiculo || selectedRamal);
+
+  return (
+    <div className="relative w-full h-full min-h-dvh overflow-hidden bg-background text-foreground select-none">
+      {/* Vista de Mapa Interactivo WebGL */}
+      <main
+          className="relative w-screen h-[100dvh] overflow-hidden select-none bg-canvas text-foreground touch-manipulation"
+          style={{ "--map-ctrl-offset": hasActivePill ? "124px" : "58px" } as React.CSSProperties}
+        >
+          {/* Header Flotante Superior: Búsqueda regular o Modo Viaje.
+              SIN backdrop-blur: el filtro sobre el canvas WebGL re-composita
+              cada frame y titilea al expandir el modal. */}
+          <div
+            className="absolute top-[max(14px,env(safe-area-inset-top))] left-4 right-4 z-30 max-w-md mx-auto pointer-events-auto flex flex-col items-center gap-2"
+            style={{ transform: "translateZ(0)" }}
+          >
+            {isTripMode ? (
+<ViajeHeader
+        originLocation={originLocation}
+        destinationLocation={destinationLocation}
+        onSelectOrigin={handleSelectOrigin}
+        onSelectDestination={handleSelectDestination}
+        onSwapPoints={handleSwapPoints}
+        onClose={handleCloseTripMode}
+        onClear={handleClearTripMode}
+        userSimulatedLocationName={SIMULATED_LOCATION_LABEL}
+        mapPickTarget={mapPickTarget}
+        onStartMapPick={handleStartMapPick}
+        onCancelMapPick={handleCancelMapPick}
+      />
+            ) : (
+              <div className="w-full flex flex-col items-center gap-2">
+                {/* Barra principal de búsqueda con Lupita: acceso directo a Modo Viaje */}
+                <button
+                  type="button"
+                  onClick={handleOpenTripMode}
+                  title="Planificar viaje en transporte público"
+                  aria-label="Abrir planificador de viaje"
+                  className="w-full bg-canvas dark:bg-canvas border border-hairline rounded-full px-3.5 py-2 shadow-sm flex items-center justify-between text-left hover:bg-canvas-soft transition-all active:scale-[0.99] group"
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <div className="w-7 h-7 rounded-full bg-canvas-soft border border-hairline flex items-center justify-center text-text-muted group-hover:text-ink shrink-0">
+                      <Search className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="truncate">
+                      <span className="text-xs font-bold text-ink block leading-tight truncate">
+                        ¿A dónde vas?
+                      </span>
+                      <span className="text-[10px] text-text-muted font-normal block truncate">
+                        Buscá calles, lugares o paradas
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-electric-blue px-2.5 py-0.5 rounded-full bg-electric-blue/10 shrink-0">
+                    Viaje
+                  </span>
+                </button>
+
+                {/* Píldora del Colectivo Seleccionado (Multilínea en mobile para mostrar información completa) */}
+                {selectedVehiculo && selectedVehicleInfo && (
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-200 w-full max-w-md px-3.5 py-2 rounded-2xl bg-canvas dark:bg-canvas border border-hairline shadow-md text-xs pointer-events-auto flex flex-col gap-1">
+                    {/* Fila 1: Insignia, Línea, Ramal, Coche y botón Cerrar */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 shadow-xs"
+                          style={{
+                            backgroundColor: selectedVehicleInfo.ramal?.color || selectedVehicleInfo.linea?.colorHex || "#1D4ED8",
+                          }}
+                        >
+                          {selectedVehicleInfo.ramal ? getRamalLetter(selectedVehicleInfo.ramal) : (selectedVehicleInfo.linea?.numero || selectedVehiculo.lineId.replace("line-", ""))}
+                        </span>
+                        <span className="font-bold text-ink shrink-0">
+                          {selectedVehicleInfo.linea ? `Línea ${selectedVehicleInfo.linea.numero}` : selectedVehiculo.lineId.replace("line-", "Línea ")}
+                        </span>
+                        {selectedVehicleInfo.ramal && (
+                          <span className="text-text-muted font-medium shrink-0">
+                            • {selectedVehicleInfo.ramal.codigo}
+                          </span>
+                        )}
+                        <span className="font-semibold text-ink shrink-0">
+                          • Coche {selectedVehicleInfo.unitNumber}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedVehiculo(null);
+                          setCameraMode("overview");
+                        }}
+                        title="Deseleccionar colectivo"
+                        aria-label="Cerrar selección de colectivo"
+                        className="w-5 h-5 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink shrink-0 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Fila 2: Próxima parada y tiempo estimado COMPLETO sin puntos suspensivos */}
+                    {selectedVehicleInfo.nextStopName && selectedVehicleInfo.minutesToNextStop !== null && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold pl-0.5 leading-snug">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span>
+                          Próxima parada: <span className="font-bold text-ink underline decoration-emerald-500/40 decoration-1 underline-offset-2">{selectedVehicleInfo.nextStopName}</span> (~{selectedVehicleInfo.minutesToNextStop} min)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Píldora del Ramal Seleccionado (visible si no hay colectivo seleccionado) */}
+                {!selectedVehiculo && selectedRamal && (
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-200 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-canvas dark:bg-canvas border border-hairline shadow-md text-xs pointer-events-auto max-w-full truncate">
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 shadow-xs"
+                      style={{ backgroundColor: selectedRamal.color || selectedLinea?.colorHex || "#1D4ED8" }}
+                    >
+                      {getRamalLetter(selectedRamal)}
+                    </span>
+                    <span className="font-bold text-ink shrink-0">
+                      {selectedRamal.codigo}:
+                    </span>
+                    <span className="text-text-muted font-medium truncate">
+                      {getRamalDisplayName(selectedRamal)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectRamal(null)}
+                      title="Quitar filtro de ramal"
+                      aria-label="Cerrar filtro de ramal"
+                      className="ml-1 w-4 h-4 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink shrink-0 transition-colors"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Selector Vertical Jerárquico de Líneas (visible cuando no estamos en modo Viaje) */}
+          {!isTripMode && (
+            <LineSelectorBar
+              lineas={lineas}
+              selectedLineaId={selectedLineaId}
+              selectedRamalId={selectedRamalId}
+              onSelectLinea={handleSelectLinea}
+              onSelectRamal={handleSelectRamal}
+              hasTopPill={hasActivePill}
+            />
+          )}
+
+          {/* Canvas de Mapa MapLibre WebGL — capa fija, sin reflow del header */}
+          <div
+            className="absolute inset-0 z-0 overflow-hidden"
+            style={{ willChange: "transform" }}
+          >
+            <DynamicMap
+              positions={filteredPositions}
+              highlightLines={effectiveHighlightLines}
+              onBusSelect={handleBusSelect}
+              onStopSelect={handleSelectStopById}
+              selectedStopId={selectedParada?.id || null}
+              stopFocusNonce={stopFocusNonce}
+              selectedKey={selectedKey}
+              cameraMode={cameraMode}
+              onCameraModeChange={setCameraMode}
+              cameraBottomPadding={isTripMode ? 220 : selectedParada ? 360 : 140}
+              center={[-58.4250, -34.5950]}
+              theme={resolvedTheme}
+              focusRequest={focusRequest}
+              plannerPoints={plannerPoints}
+              plannerPulse={plannerPulse}
+              tripSegments={isTripMode && selectedTrip ? selectedTrip.segments : null}
+              tripUsedStopIds={isTripMode && selectedTrip ? selectedTrip.usedStopIds : null}
+              tripFocus={isTripMode && !!selectedTrip}
+              pickMode={Boolean(mapPickTarget)}
+              onMapPick={handleMapPick}
+              className="w-full h-full"
+            />
+          </div>
+
+          {/* Controles Flotantes en el Mapa */}
+          <div
+            className={`absolute right-4 z-20 flex flex-col gap-2 pointer-events-auto items-center w-10 transition-all duration-300 ease-out ${
+              hasActivePill
+                ? "top-[calc(max(14px,env(safe-area-inset-top))+250px)]"
+                : "top-[calc(max(14px,env(safe-area-inset-top))+184px)]"
+            }`}
+          >
+            <ThemeToggle />
+
+
+            <button
+              onClick={handleResetCamera}
+              title="Centrar en Metropol"
+              aria-label="Centrar vista en Metropol"
+              className="w-10 h-10 rounded-full bg-canvas/95 border border-hairline flex items-center justify-center text-foreground hover:bg-canvas-soft active:scale-95 transition-all"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+
+            {selectedVehiculo && (
+              <button
+                onClick={handleToggle3D}
+                title={cameraMode === "navigation-vehicle" ? "Cambiar a vista 2D" : "Volver a la vista 3D"}
+                aria-label="Alternar modo 3D"
+                className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
+                  cameraMode === "navigation-vehicle"
+                    ? "bg-primary text-primary-foreground border-primary font-medium"
+                    : "bg-canvas/95 text-foreground border-hairline hover:bg-canvas-soft"
+                }`}
+              >
+                <Eye className="w-4 h-4" />
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setUserLocation((prev) =>
+                  prev ? null : { lat: SIMULATED_USER_LOCATION.lat, lng: SIMULATED_USER_LOCATION.lng }
+                );
+              }}
+              title={userLocation ? "Desactivar mi ubicación simulada" : "Activar mi ubicación simulada (Parque Centenario)"}
+              aria-label="Alternar mi posición simulada"
+              className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
+                userLocation
+                  ? "bg-primary text-primary-foreground border-primary font-medium"
+                  : "bg-canvas/95 text-text-muted border-hairline hover:bg-canvas-soft"
+              }`}
+            >
+              <Navigation className={`w-4 h-4 ${userLocation ? "fill-current" : ""}`} />
+            </button>
+          </div>
+
+          {/* Panel de Viaje o Burbuja Flotante según el modo activo */}
+          {isTripMode ? (
+            <ViajePanel
+              options={tripOptions}
+              selectedOptionId={selectedTrip?.id || null}
+              onSelectOption={(id) => { setSelectedTripId(id); setSelectedStepId(null); }}
+              onClose={handleCloseTripMode}
+              hasPointsSelected={Boolean(originLocation && destinationLocation)}
+              originLocation={originLocation}
+              destinationLocation={destinationLocation}
+              selectedStepId={activeStepId}
+              onSelectStep={setSelectedStepId}
+            />
+          ) : (
+            <LiveTransportBubble
+              isOpen={isLineMenuOpen}
+              onClose={() => setIsLineMenuOpen(false)}
+              selectedLinea={selectedLinea}
+              selectedRamal={selectedRamal}
+              selectedParada={selectedParada}
+              paradas={paradas}
+              llegadas={llegadas}
+              alertas={alertas}
+              totalVehiculosActivos={filteredPositions.length}
+              onSelectParada={handleSelectParada}
+              selectedVehiculo={selectedVehiculo}
+              cameraMode={cameraMode}
+              onToggle3D={selectedVehiculo ? handleToggle3D : undefined}
+              timelineStops={timelineStops}
+              busProgress={busProgress}
+              busAlongM={busAlongM}
+            />
+          )}
+      </main>
+
+      {/* Bottom nav unificado (sin Perfil) — Líneas abre el selector en /mapas */}
+      <BottomNav
+        isLineMenuOpen={isLineMenuOpen}
+        onToggleLineMenu={handleToggleLineMenu}
+        onActivateTripMode={handleOpenTripMode}
+        isTripMode={isTripMode}
+      />
+    </div>
+  );
+}

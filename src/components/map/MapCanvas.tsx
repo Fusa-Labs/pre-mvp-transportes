@@ -134,6 +134,8 @@ export interface MapCanvasProps {
   onBusSelect?: (pos: VehiclePosition | null) => void;
   onStopSelect?: (stopId: string) => void;
   selectedStopId?: string | null;
+  /** Re-dispara el flyTo a la parada aunque selectedStopId no cambie. */
+  stopFocusNonce?: number;
   selectedKey?: string | null;
   cameraMode?: CameraMode;
   cameraBottomPadding?: number;
@@ -319,6 +321,7 @@ export function MapCanvas({
   onBusSelect,
   onStopSelect,
   selectedStopId = null,
+  stopFocusNonce = 0,
   selectedKey = null,
   cameraMode = 'overview',
   cameraBottomPadding = 116,
@@ -396,7 +399,8 @@ export function MapCanvas({
       zoom: 16.5,
       pitch: 25,
       duration: 1100,
-      padding: { bottom: cameraBottomPaddingRef.current + 80 },
+      // Usa el prop directo: el ref se actualiza en otro effect y este corre primero
+      padding: { bottom: cameraBottomPadding + 80 },
       essential: true,
     });
 
@@ -440,7 +444,8 @@ export function MapCanvas({
         stopSelectHandlerRef.current?.('');
       };
     }
-  }, [selectedStopId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStopId, stopFocusNonce, cameraBottomPadding]);
 
   // Cursor crosshair + refs del handler mientras el planificador espera
   // el tap del mapa (el handler 'click' se registra una sola vez).
@@ -464,21 +469,25 @@ export function MapCanvas({
   }, [plannerPoints, plannerPulse, tripSegments, tripUsedStopIds]);
 
   // Fase 3: encuadre del viaje planificado — event-driven por nonce,
-  // programa el fitBounds UNA vez (no es un modo de cámara: el usuario
-  // conserva el control apenas suelta el sheet).
+  // programa el fitBounds UNA vez. rAF: si el nonce cambia en el mismo
+  // tick que el mount/seed, evita doble easeTo (parpadeo de cámara).
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !focusRequest) return;
-    map.fitBounds(focusRequest.bounds, {
-      padding: {
-        top: 130,
-        bottom: (focusRequest.bottomPadding ?? cameraBottomPadding) + 48,
-        left: 60,
-        right: 60,
-      },
-      duration: 900,
-      essential: true,
+    if (!focusRequest) return;
+    const raf = requestAnimationFrame(() => {
+      const map = mapRef.current;
+      if (!map || !focusRequest) return;
+      map.fitBounds(focusRequest.bounds, {
+        padding: {
+          top: 130,
+          bottom: (focusRequest.bottomPadding ?? cameraBottomPadding) + 48,
+          left: 60,
+          right: 60,
+        },
+        duration: 900,
+        essential: true,
+      });
     });
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusRequest?.nonce]);
 
@@ -514,10 +523,28 @@ export function MapCanvas({
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 96 }), 'bottom-left');
     mapRef.current = map;
 
+    // ResizeObserver → map.resize() SIN guard: si el callback re-dispara
+    // el propio resize (o el teclado/búsqueda oscilan el contenedor),
+    // entramos en reflow thrashing y el canvas parpadea varios frames.
+    // Coalesce en un rAF + solo si el tamaño realmente cambió.
+    let lastResizeW = 0;
+    let lastResizeH = 0;
+    let resizeRafId: number | null = null;
     const ro = new ResizeObserver(() => {
-      if (!disposed && mapRef.current) {
-        mapRef.current.resize();
+      if (disposed) return;
+      const box = el.getBoundingClientRect();
+      if (Math.round(box.width) === lastResizeW && Math.round(box.height) === lastResizeH) {
+        return;
       }
+      if (resizeRafId !== null) return;
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = null;
+        if (disposed || !mapRef.current) return;
+        const b = el.getBoundingClientRect();
+        lastResizeW = Math.round(b.width);
+        lastResizeH = Math.round(b.height);
+        mapRef.current.resize();
+      });
     });
     ro.observe(el);
 
@@ -1510,6 +1537,10 @@ export function MapCanvas({
         }
       }
 
+      // FOUC de capas: nazcan OCULTAS (filter __ninguna__) — applyHighlight
+      // recién habilita la línea activa. Sin esto parpadean todas las rutas.
+      const HIDE_ALL_ROUTES = ['==', ['get', 'lineId'], '__ninguna__'] as never;
+
       map.addSource('routes', {
         type: 'geojson',
         data: {
@@ -1521,6 +1552,7 @@ export function MapCanvas({
         id: 'route-casing',
         type: 'line',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': dark ? '#E8ECF2' : '#FFFFFF',
@@ -1543,6 +1575,7 @@ export function MapCanvas({
         id: 'route-halo-a',
         type: 'line',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': ['get', 'color'],
@@ -1555,6 +1588,7 @@ export function MapCanvas({
         id: 'route-halo-b',
         type: 'line',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': ['get', 'color'],
@@ -1567,6 +1601,7 @@ export function MapCanvas({
         id: 'route-line',
         type: 'line',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': ['get', 'color'],
@@ -1584,6 +1619,7 @@ export function MapCanvas({
         id: 'route-flow-tail',
         type: 'line',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
         paint: {
           'line-color': ['get', 'colorLight'],
@@ -1595,6 +1631,7 @@ export function MapCanvas({
         id: 'route-flow-head',
         type: 'line',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
         paint: {
           'line-color': '#FFFFFF',
@@ -1611,6 +1648,7 @@ export function MapCanvas({
         id: 'route-arrows',
         type: 'symbol',
         source: 'routes',
+        filter: HIDE_ALL_ROUTES,
         layout: {
           'symbol-placement': 'line',
           'symbol-spacing': 150,
@@ -2256,6 +2294,7 @@ export function MapCanvas({
       // stopPulse) salen temprano y el cleanup nunca toca el mapa en
       // mitad de un swap de estilo.
       disposed = true;
+      if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       ro.disconnect();
       stopFlow();
       stopPulse();
@@ -2342,7 +2381,17 @@ export function MapCanvas({
     <div
       ref={containerRef}
       className={className}
-      style={{ width: '100%', height: '100%' }}
+      style={{
+        width: '100%',
+        height: '100%',
+        // Capa de composición aislada: el header/dropdown no re-pinta el
+        // backdrop sobre el WebGL (sin backdrop-blur no hay readback, pero
+        // translateZ + isolation refuerzan el boundary de compositor).
+        willChange: 'transform',
+        transform: 'translateZ(0)',
+        backfaceVisibility: 'hidden',
+        isolation: 'isolate',
+      }}
     />
   );
 }

@@ -1,5 +1,6 @@
 import { PARADAS_MOCK, DATASET } from "@/lib/mock/amba-data";
 import { Parada } from "@/types/transport";
+import { searchGeocode, geoToLocationPoint } from "@/lib/planner/geocoder";
 import {
   LocationPoint,
   TripOption,
@@ -338,46 +339,61 @@ export class TripPlannerService {
   }
 
   /**
-   * Resuelve texto de búsqueda contra POIs, direcciones o paradas.
+   * Resuelve texto de búsqueda contra calles, landmarks, POIs y paradas.
+   * Fuente local (geocoder): sin llamadas runtime a OSM.
    */
   public static searchLocations(query: string): LocationPoint[] {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) {
       return KNOWN_POIS.slice(0, 8);
     }
 
-    const matches: LocationPoint[] = [];
+    const geos = searchGeocode(
+      q,
+      {
+        pois: KNOWN_POIS.map((p) => ({
+          id: p.id ?? p.name,
+          name: p.name,
+          address: p.address,
+          lat: p.lat,
+          lng: p.lng,
+          stopId: p.stopId,
+        })),
+        stops: PARADAS_MOCK.map((p) => ({
+          id: p.id,
+          name: p.nombre,
+          address: p.direccion,
+          lat: p.lat,
+          lng: p.lng,
+        })),
+      },
+      10,
+    );
 
-    // 1. POIs conocidos
-    for (const poi of KNOWN_POIS) {
-      if (
-        poi.name.toLowerCase().includes(q) ||
-        (poi.address && poi.address.toLowerCase().includes(q))
-      ) {
-        matches.push(poi);
-      }
-    }
-
-    // 2. Paradas oficiales
-    for (const p of PARADAS_MOCK) {
-      if (
-        p.nombre.toLowerCase().includes(q) ||
-        (p.direccion && p.direccion.toLowerCase().includes(q))
-      ) {
-        if (!matches.some((m) => m.stopId === p.id)) {
-          matches.push({
-            id: p.id,
-            name: p.nombre,
-            address: p.direccion,
-            lat: p.lat,
-            lng: p.lng,
-            stopId: p.id,
-          });
+    return geos.map((g) => {
+      const point = geoToLocationPoint(g);
+      // Preservar POIs canónicos del planner (mismo objeto / mismo stopId)
+      if (g.kind === "poi" || g.kind === "parada") {
+        const known =
+          KNOWN_POIS.find((p) => p.name === g.name) ??
+          (() => {
+            const stop = PARADAS_MOCK.find((p) => p.id === g.stopId);
+            if (!stop) return null;
+            return {
+              id: stop.id,
+              name: stop.nombre,
+              address: stop.direccion,
+              lat: stop.lat,
+              lng: stop.lng,
+              stopId: stop.id,
+            } as LocationPoint;
+          })();
+        if (known) {
+          return { ...known, focusBounds: point.focusBounds };
         }
       }
-    }
-
-    return matches.slice(0, 10);
+      return point as LocationPoint;
+    });
   }
 
   /**
@@ -405,31 +421,15 @@ export class TripPlannerService {
       };
     }
 
-    // Buscar en POIs conocidos
-    const q = clean.toLowerCase();
-    const poi = KNOWN_POIS.find(
-      (p) =>
-        p.name.toLowerCase() === q ||
-        p.name.toLowerCase().includes(q) ||
-        (p.address && p.address.toLowerCase().includes(q))
-    );
-    if (poi) return poi;
-
-    // Buscar en paradas por nombre
-    const paradaMatch = PARADAS_MOCK.find(
-      (p) =>
-        p.nombre.toLowerCase().includes(q) ||
-        (p.direccion && p.direccion.toLowerCase().includes(q))
-    );
-    if (paradaMatch) {
-      return {
-        id: paradaMatch.id,
-        name: clean, // Preserva el nombre tipeado por el usuario
-        address: paradaMatch.direccion,
-        lat: paradaMatch.lat,
-        lng: paradaMatch.lng,
-        stopId: paradaMatch.id,
-      };
+    // Geocoder local: calles ("Cabildo"), landmarks ("Obelisco"), POIs, paradas.
+    const geoHits = this.searchLocations(clean);
+    if (geoHits.length > 0) {
+      const first = geoHits[0];
+      // Preservar el texto tipeado por el usuario como name si es la mejor coincidencia libre
+      if (first.isArbitrary) {
+        return { ...first, name: clean };
+      }
+      return first;
     }
 
     return null;

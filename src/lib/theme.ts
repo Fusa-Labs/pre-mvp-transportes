@@ -6,8 +6,8 @@
 export const tokens = {
   // Paleta corporativa Metropol / AMBA
   brand: {
-    primary: "#f59e0b",
-    primaryHover: "#d97706",
+    primary: "#1D2B4F",
+    primaryHover: "#152248",
     surface: "#ffffff",
     surfaceDark: "#18181b",
     border: "#e2e8f0",

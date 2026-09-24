@@ -47,9 +47,27 @@ export default function LiveTransportBubble({
   busAlongM = 0,
 }: LiveTransportBubbleProps) {
   const [activeTab, setActiveTab] = useState<"llegadas" | "paradas" | "alertas">("llegadas");
-  const { collapsed, toggle, handleProps } = useDragCollapse(false);
+  const [half, setHalf] = useState(false);
+  const { collapsed, setCollapsed, toggle, handleProps } = useDragCollapse(false);
 
   if (!isOpen) return null;
+
+  const handleToggle = () => {
+    // half (40dvh) → tap = volver a full (58dvh); si no, ciclo normal
+    if (half && !collapsed) {
+      setHalf(false);
+      return;
+    }
+    setHalf(false);
+    toggle();
+  };
+
+  const handleVerParada = (p: Parada) => {
+    // Deja el modal a <50dvh para que se vea la parada en el mapa
+    setCollapsed(false);
+    setHalf(true);
+    onSelectParada(p);
+  };
 
   const filteredAlerts = selectedLinea
     ? alertas.filter((a) => a.lineaId === selectedLinea.id)
@@ -59,8 +77,8 @@ export default function LiveTransportBubble({
     <div className="fixed bottom-[88px] inset-x-0 z-40 pointer-events-none flex justify-center px-4 pb-[env(safe-area-inset-bottom,0px)]">
       <aside
         aria-label="Panel de información en vivo de la línea"
-        style={{ maxHeight: collapsed ? "74px" : "58dvh" }}
-        className="pointer-events-auto w-full max-w-[410px] bg-canvas/95 dark:bg-canvas/95 backdrop-blur-2xl border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col relative animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-hidden transition-[max-height] duration-300"
+        style={{ maxHeight: collapsed ? "74px" : half ? "40dvh" : "58dvh" }}
+        className="pointer-events-auto w-full max-w-[410px] bg-canvas dark:bg-canvas border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col relative animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-hidden transition-[max-height] duration-300"
       >
         {/* Puntero triangular tipo burbuja apuntando al botón de Líneas en la navbar */}
         <div
@@ -72,7 +90,7 @@ export default function LiveTransportBubble({
         <div
           className="pt-1.5 pb-0.5 flex justify-center shrink-0 cursor-pointer"
           aria-hidden="true"
-          onClick={toggle}
+          onClick={handleToggle}
         >
           <div className="w-9 h-1 rounded-full bg-hairline" />
         </div>
@@ -83,7 +101,7 @@ export default function LiveTransportBubble({
           {...handleProps}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;
-            toggle();
+            handleToggle();
           }}
         >
         <div className="flex items-center gap-2.5 truncate">
@@ -111,7 +129,7 @@ export default function LiveTransportBubble({
           ) : (
             <div className="flex items-center gap-2">
               <Radio className="w-4 h-4 text-electric-blue animate-pulse" />
-              <span className="text-xs font-bold text-ink">Red de Colectivos AMBA</span>
+              <span className="text-xs font-bold text-ink">Red La Nueva Metropol</span>
             </div>
           )}
         </div>
@@ -273,7 +291,7 @@ export default function LiveTransportBubble({
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => onSelectParada(p)}
+                  onClick={() => handleVerParada(p)}
                   className={`w-full p-2 rounded-xl text-left flex items-center justify-between transition-colors ${
                     isSelected
                       ? "bg-electric-blue/10 border border-electric-blue/30 text-electric-blue"
