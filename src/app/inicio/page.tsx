@@ -12,7 +12,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
-  Bell,
   Bus,
   AlertTriangle,
   Route,
@@ -29,7 +28,6 @@ import { LocationConsentModal } from '@/components/home/LocationConsentModal';
 import { PlaceSelector } from '@/components/home/PlaceSelector';
 import { AssistantWizard } from '@/components/home/AssistantWizard';
 import { MetropolRose } from '@/components/brand/metropol-logo';
-import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { MOCK_STOPS, MOCK_LINES, MOCK_ALERTS } from '@/mock/data';
 import { subscribeToPositions } from '@/mock/live';
 import { useFavorites } from '@/hooks/use-favorites';
@@ -48,7 +46,6 @@ import type { VehiclePosition } from '@/lib/data-service';
 import type { LocationPoint } from '@/types/trip-planner';
 
 const ACTIVE_ALERTS = MOCK_ALERTS.filter((a) => a.status !== 'resolved');
-const UNREAD_ALERTS = ACTIVE_ALERTS.length;
 const ALL_LINE_IDS = MOCK_LINES.map((l) => l.id);
 
 function hashOf(s: string): number {
@@ -468,23 +465,6 @@ export default function HomePage() {
               {today}
             </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          {/* Campana de alertas — badge real con contador activo */}
-          <Link
-            href="/alertas"
-            className="relative h-12 w-12 flex items-center justify-center rounded-full bg-canvas-soft hover:bg-field transition-colors"
-            aria-label={`Ver alertas de servicio${UNREAD_ALERTS > 0 ? `, ${UNREAD_ALERTS} activas` : ''}`}
-          >
-            <Bell className="w-6 h-6 text-text-muted" />
-            {UNREAD_ALERTS > 0 && (
-              <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-white text-[10px] font-bold flex items-center justify-center border-2 border-canvas">
-                {UNREAD_ALERTS}
-              </span>
-            )}
-          </Link>
         </div>
       </header>
 
