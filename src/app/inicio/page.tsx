@@ -60,7 +60,7 @@ const ALERT_BADGE_LABEL: Record<string, string> = {
 };
 
 function activeAlertLabelForLine(lineId: string): string | null {
-  const alert = ACTIVE_ALERTS.find((a) => a.lineId === lineId);
+  const alert = ACTIVE_ALERTS.find((a) => a.lineId === lineId && a.disrupcion);
   return alert ? (ALERT_BADGE_LABEL[alert.type] ?? 'ALERTA') : null;
 }
 

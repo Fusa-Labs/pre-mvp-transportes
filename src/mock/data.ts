@@ -153,6 +153,7 @@ export const MOCK_ALERTS: Alert[] = [
     severity: 'amber',
     timestamp: Date.now() - 1000 * 60 * 3,
     since: '09:30',
+    disrupcion: true,
   },
   {
     id: 'alert-65-001',
