@@ -39,12 +39,11 @@ import { subscribeToPositions } from '@/mock/live';
 import { useFavorites } from '@/hooks/use-favorites';
 import { useAssistantSession } from '@/hooks/use-assistant-session';
 import { assistantRefFromSession } from '@/lib/assistant-session';
+import { TripPlannerService } from '@/lib/services/trip-planner-service';
 import {
   nearbyStopsFor,
-  parseAssistantQuery,
   resolveAssistantQuery,
   type AssistantAnswer,
-  type AssistantIntent,
   type AssistantQuery,
 } from '@/lib/services/assistant-intent-service';
 import type { TripOption } from '@/types/trip-planner';
@@ -70,18 +69,18 @@ export default function HomePage() {
   // La consulta exhibida; la respuesta se DERIVA (useAnswer) para refrescar
   // con el GPS live sin setState dentro de un effect.
   const [activeQuery, setActiveQuery] = useState<AssistantQuery | null>(null);
-  const [activeIntent, setActiveIntent] = useState<AssistantIntent | null>(null);
   // Parada en foco de la hoja → refinamiento contextual ("¿cuándo llega?" aquí).
   const [paradaRef, setParadaRef] = useState<string | undefined>(undefined);
   // Máquina de fases del flujo: idle → consent → selector → answer.
   const [phase, setPhase] = useState<'idle' | 'consent' | 'selector' | 'answer'>('idle');
-  const [pendingQuery, setPendingQuery] = useState<AssistantQuery | null>(null);
   // Wizard de viaje en 3 pasos (PBI-020): overlay propio del chip "¿Cómo llego a…?".
   const [wizardOpen, setWizardOpen] = useState(false);
   // true = al terminar el selector de lugar, reabrir el wizard (paso 1 "Cambiar").
   const [wizardResume, setWizardResume] = useState(false);
-  // El botón de próxima llegada comparte el mismo recorrido completo que Mi Viaje.
-  const [wizardPurpose, setWizardPurpose] = useState<'next-arrival' | 'trip-plan'>('trip-plan');
+  // Destino elegido explícitamente en Home. Se conserva a través del gate de
+  // ubicación para omitir el paso Destino, pero nunca se infiere de texto libre.
+  const [pendingDestino, setPendingDestino] = useState<LocationPoint | null>(null);
+  const [wizardError, setWizardError] = useState<string | null>(null);
   const { session, setConsentido, setLugar, setParadaSelId, setLastQuery } = useAssistantSession();
 
   useEffect(() => {
@@ -91,7 +90,6 @@ export default function HomePage() {
 
   const runAssistant = useCallback(
     (query: AssistantQuery, ctxOverride?: { paradaRef?: string }) => {
-      setActiveIntent(query.intent);
       setActiveQuery(query);
       setPhase('answer');
       setLastQuery({
@@ -117,36 +115,16 @@ export default function HomePage() {
     });
   }, [phase, activeQuery, session, paradaRef, favorites, positions]);
 
-  /** Gate de los 3 chips de ubicación: permiso → selector → respuesta. */
-  const gateLocationQuery = useCallback(
-    (query: AssistantQuery) => {
-      setActiveIntent(query.intent);
-      setParadaRef(undefined);
-      if (!session.consentido) {
-        setPendingQuery(query);
-        setPhase('consent');
-        return;
-      }
-      if (!session.lugar) {
-        setPendingQuery(query);
-        setPhase('selector');
-        return;
-      }
-      runAssistant(query);
-    },
-    [session.consentido, session.lugar, runAssistant],
-  );
-
   /**
-   * §2 Wizard "¿Cómo llego a…?" en 3 pasos: ubicación → parada → destino.
-   * Requiere el mismo gate de consentimiento/lugar que los chips de ubicación.
+   * §2 Wizard de viaje en 3 pasos: ubicación → parada → destino.
+   * Requiere el gate de consentimiento/lugar antes de abrirse.
    * SIEMPRE muestra el wizard: si ya existe una guía completa (PBI-019), el
    * paso "Destino" se reanuda con la parada y el destino anteriores cargados
    * para confirmar o cambiar — nunca se los saltea.
    */
-  const openTripWizard = useCallback((purpose: 'next-arrival' | 'trip-plan' = 'trip-plan') => {
-    setWizardPurpose(purpose);
-    setActiveIntent(purpose === 'next-arrival' ? 'next_arrival' : 'trip_plan');
+  const openTripWizard = useCallback((destination?: LocationPoint) => {
+    setPendingDestino(destination ?? null);
+    setWizardError(null);
     setParadaRef(undefined);
     if (!session.consentido) {
       setWizardResume(true);
@@ -172,23 +150,6 @@ export default function HomePage() {
         }
       : null;
 
-  const handleChip = useCallback(
-    (intent: AssistantIntent) => {
-      // Toggle: volver a tocar el chip activo oculta la hoja SIN borrar el
-      // estado (consentimiento + lugar + última consulta siguen en localStorage).
-      if (intent === activeIntent && phase === 'answer') {
-        setPhase('idle');
-        return;
-      }
-      if (intent === 'trip_plan' || intent === 'next_arrival') {
-        openTripWizard(intent === 'next_arrival' ? 'next-arrival' : 'trip-plan');
-        return;
-      }
-      gateLocationQuery({ intent });
-    },
-    [activeIntent, phase, openTripWizard, gateLocationQuery],
-  );
-
   // ─── Ubicación real o demo. La API se invoca exclusivamente desde el CTA. ───
   const openWizardForLocation = useCallback((location: LocationPoint) => {
     const nearby = findNearbyStops({
@@ -202,9 +163,9 @@ export default function HomePage() {
     setConsentido(true);
     setLugar({ name: location.name, address: location.address, lat: location.lat, lng: location.lng, stopId: location.stopId });
     setParadaSelId(null);
-    setPendingQuery(null);
     setPhase('idle');
     setWizardResume(false);
+    setWizardError(null);
     setWizardOpen(true);
   }, [positions, setConsentido, setLugar, setParadaSelId]);
 
@@ -219,8 +180,7 @@ export default function HomePage() {
 
   const handleConsentClose = useCallback(() => {
     setPhase('idle');
-    setActiveIntent(null);
-    setPendingQuery(null);
+    setPendingDestino(null);
   }, []);
 
   // ─── Handler del selector de lugar ───
@@ -240,37 +200,29 @@ export default function HomePage() {
       // nuevo lugar, sin ejecutar la consulta de llegadas pendiente.
       if (wizardResume) {
         setWizardResume(false);
-        setWizardOpen(true);
-        return;
-      }
-      if (wizardPurpose === 'next-arrival') {
-        setPendingQuery(null);
-        setPhase('idle');
+        setWizardError(null);
         setWizardOpen(true);
         return;
       }
       const query =
-        pendingQuery ??
-        (session.lastQuery
+        session.lastQuery
           ? {
               intent: session.lastQuery.intent,
               destinoText: session.lastQuery.destinoText,
               lineaNumero: session.lastQuery.lineaNumero,
             }
-          : { intent: 'next_arrival' as const });
-      setPendingQuery(null);
+          : { intent: 'next_arrival' as const };
       // El snapshot de sesión se actualiza con el notify() de setLugar en el
       // mismo batch; el useMemo de answer resuelve ya con el lugar nuevo.
       runAssistant(query, { paradaRef: place.stopId });
     },
-    [pendingQuery, session.lastQuery, setLugar, setParadaSelId, wizardResume, wizardPurpose, runAssistant],
+    [session.lastQuery, setLugar, setParadaSelId, wizardResume, runAssistant],
   );
 
   const handlePlaceCancel = useCallback(() => {
     setPhase('idle');
-    setActiveIntent(null);
-    setPendingQuery(null);
     setWizardResume(false);
+    setPendingDestino(null);
   }, []);
 
   // ─── Wizard de viaje (PBI-020) ───
@@ -288,15 +240,33 @@ export default function HomePage() {
   );
 
   const handleWizardComplete = useCallback(
-    (paradaId: string, destinoText: string) => {
+    (paradaId: string, destinoText: string, selectedDestination?: LocationPoint) => {
+      if (selectedDestination) {
+        setWizardError(null);
+        const trip = TripPlannerService.planTrip(paradaId, selectedDestination).find((option) =>
+          option.legs.some((leg) => leg.type === 'ride' && leg.fromStop.id === paradaId),
+        );
+        if (!trip) {
+          setWizardError('No encontramos un colectivo para ese destino desde esta parada. Elegí otra parada cercana.');
+          return false;
+        }
+        setWizardOpen(false);
+        setPendingDestino(null);
+        setParadaSelId(paradaId);
+        setPhase('idle');
+        router.push(tripMapUrl(trip, trip.origin, { boardingStopId: paradaId }));
+        return true;
+      }
       setWizardOpen(false);
+      setPendingDestino(null);
       setParadaSelId(paradaId);
       runAssistant(
         { intent: 'trip_plan', destinoText, originStopId: paradaId },
         { paradaRef: paradaId },
       );
+      return true;
     },
-    [setParadaSelId, runAssistant],
+    [router, setParadaSelId, runAssistant],
   );
 
   const handleWizardChangeLocation = useCallback(() => {
@@ -308,7 +278,7 @@ export default function HomePage() {
   const handleWizardClose = useCallback(() => {
     setWizardOpen(false);
     setWizardResume(false);
-    setActiveIntent(null);
+    setPendingDestino(null);
   }, []);
 
   /**
@@ -344,31 +314,16 @@ export default function HomePage() {
     [runAssistant, session.paradaSelId],
   );
 
-  const handleAskFreeText = useCallback(
-    (text: string) => {
-      const query = parseAssistantQuery(text);
-      if (query.intent === 'next_arrival' || query.intent === 'nearest_stop' || query.intent === 'walk_timing') {
-        gateLocationQuery(query);
-        return;
-      }
-      // Trip con destino en texto libre y wizard ya completo: guía desde la
-      // parada elegida; si no, viaje clásico desde el lugar de referencia.
-      if (query.intent === 'trip_plan' && query.destinoText && session.paradaSelId) {
-        runAssistant(
-          { ...query, originStopId: session.paradaSelId },
-          { paradaRef: session.paradaSelId },
-        );
-        return;
-      }
-      setParadaRef(undefined);
-      runAssistant(query);
+  /** El buscador es destino directo: no se pasa por el parser de preguntas. */
+  const handleDestinationSearch = useCallback(
+    (destination: LocationPoint) => {
+      openTripWizard(destination);
     },
-    [gateLocationQuery, runAssistant, session.paradaSelId],
+    [openTripWizard],
   );
 
   const closeAnswer = useCallback(() => {
     setActiveQuery(null);
-    setActiveIntent(null);
     setParadaRef(undefined);
     setPhase('idle');
   }, []);
@@ -383,10 +338,10 @@ export default function HomePage() {
    * estado zero-bus de la hoja de Home. Reabre el wizard "¿Cómo llego a…?" en el
    * paso Destino CONSERVANDO el origen: `wizardResumeGuide` reanuda con la parada
    * elegida (`session.paradaSelId`) y el último destino, sin resetear el lugar ni
-   * el consentimiento. Reusa el mismo gate que los chips (openTripWizard).
+   * el consentimiento.
    */
   const handleRepickDestination = useCallback(() => {
-    openTripWizard('trip-plan');
+    openTripWizard();
   }, [openTripWizard]);
 
   const stops = useMemo(
@@ -459,13 +414,9 @@ export default function HomePage() {
       </header>
 
       <main className="px-4 flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[104px]">
-        {/* Asistente — caja de texto + preguntas sugeridas */}
+        {/* Buscador único de destino */}
         <div className="mt-2">
-          <AssistantBar
-            onIntent={handleChip}
-            onFreeText={handleAskFreeText}
-            activeIntent={activeIntent}
-          />
+          <AssistantBar onSubmit={handleDestinationSearch} />
         </div>
 
         {/* Llegada destacada */}
@@ -691,9 +642,11 @@ export default function HomePage() {
         open={wizardOpen}
         locationName={assistantRefFromSession(session).name}
         nearbyStops={wizardNearbyStops}
-        initialStep={wizardResumeGuide ? 'destino' : undefined}
-        initialParadaId={wizardResumeGuide?.paradaId ?? null}
-        initialDestino={wizardResumeGuide?.destino ?? null}
+        initialStep={!pendingDestino && wizardResumeGuide ? 'destino' : undefined}
+        initialParadaId={!pendingDestino ? wizardResumeGuide?.paradaId ?? null : null}
+        initialDestino={pendingDestino?.name ?? wizardResumeGuide?.destino ?? null}
+        preselectedDestination={pendingDestino}
+        submissionError={wizardError}
         onChangeLocation={handleWizardChangeLocation}
         onClose={handleWizardClose}
         onComplete={handleWizardComplete}
