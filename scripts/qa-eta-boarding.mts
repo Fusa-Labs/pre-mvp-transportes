@@ -163,6 +163,11 @@ function seedBoardingRows(seed: SeedRoute): BoardingOptionRow[] {
 // `stop-65-09`) DEBE quedar byte-idéntica tras W1/W2′; los 194 (phantom /
 // sparse) son el síntoma a corregir y se "flipean" al objetivo.
 //
+// W1 (proyección por ramal): los 194 quedaron RE-CONGELADOS con lo que emite la
+// rama viva tras W1 — `stop-194-once` sin el fantasma de Zárate, `stop-194-zarate`
+// con unidades realmente en el terminal y `stop-194-escobar` con sus ramales
+// propios. La 65/60 NO cambió. W2′ completará los 194 sparse a >= 3 escalonado.
+//
 // NOTA DE FIDELIDAD: la línea base real difiere de los valores estimados en el
 // brief SDD. Motivos verificados:
 //   - `stop-65-05`/`stop-65-01` son paradas 65+60 → hasta 6 filas (3 por línea).
@@ -198,21 +203,21 @@ const FROZEN_BASELINE: FrozenStop[] = [
   },
   {
     stopId: "stop-194-escobar-estacion",
-    minutos: [19, 21, 23],
-    labels: ["19 min", "21 min", "23 min"],
-    note: "W2′ debe escalonar/completar a >= 3",
+    minutos: [0, 1, 19],
+    labels: ["En parada", "En parada", "19 min"],
+    note: "W1: proyección por ramal; 201[h]/502[f] reales en el terminal Escobar y 603[i] ya no aparece (no sirve Escobar) · W2′ completará >= 3 escalonado",
   },
   {
     stopId: "stop-194-once",
-    minutos: [0, 0, 1],
-    labels: ["En parada", "En parada", "En parada"],
-    note: "ANTES (bug): 3×En parada por proyección sobre una sola traza · W1 lo elimina",
+    minutos: [0, 0, 23],
+    labels: ["En parada", "En parada", "23 min"],
+    note: "W1: fantasma 471[g] (físicamente en Zárate) ELIMINADO; 102[a]/302[b] reales en Once · W2′ completará >= 3 escalonado",
   },
   {
     stopId: "stop-194-zarate-transferencia",
-    minutos: [0, 0, 1],
+    minutos: [0, 1, 1],
     labels: ["En parada", "En parada", "En parada"],
-    note: "ANTES (bug): phantom en el terminal · W1/W2′ lo corrigen",
+    note: "W1: ahora 601[i]/471[g]/401[d] REALMENTE en el terminal Zárate (antes 102[a]/302[b], que estaban en Once) · W2′ completará >= 3 escalonado",
   },
 ];
 
