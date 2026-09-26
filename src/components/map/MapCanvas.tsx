@@ -2288,6 +2288,9 @@ export function MapCanvas({
       // ─── Ruta activa del viaje seleccionado (UX selección) ───
       // Sin estas capas, tripSegments actualizaba un source invisible.
       // Casing blanco + línea en color del segmento; walk/transfer dashed.
+      // Deben quedar debajo de la primera capa de vehículo: MapLibre pinta las
+      // capas posteriores por encima, y agregar estos segmentos al final tapaba
+      // al colectivo seleccionado durante el cruce de una parada.
       map.addSource('trip-active-segments', { type: 'geojson', data: tripSegmentsData() });
       map.addLayer({
         id: 'trip-seg-casing',
@@ -2298,7 +2301,7 @@ export function MapCanvas({
           'line-width': 7,
           'line-opacity': 0.9,
         },
-      });
+      }, 'bus-glow');
       map.addLayer({
         id: 'trip-seg-line',
         type: 'line',
@@ -2313,13 +2316,13 @@ export function MapCanvas({
             ['literal', [1, 0]],
           ],
         },
-      });
+      }, 'bus-glow');
 
       map.addLayer({
         id: 'trip-seg-pulse', type: 'line', source: 'trip-active-segments',
         filter: ['==', ['get', 'type'], 'ride'],
         paint: { 'line-color': '#FFFFFF', 'line-width': 1.5, 'line-opacity': 0, 'line-blur': 0.35, 'line-dasharray': [0, 0, 2, 8] },
-      });
+      }, 'bus-glow');
       // Reaplica modo foco tras (re)instalación (ej: cambio de tema).
       if (tripFocusRef.current) {
         for (const layerId of TRIP_FOCUS_HIDDEN_LAYERS) {
