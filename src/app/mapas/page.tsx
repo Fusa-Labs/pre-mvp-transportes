@@ -1094,12 +1094,19 @@ export default function TransportesAppPage() {
   const handleToggle3D = useCallback(() => {
     if (isTripMode) {
       setTrip3D((v) => !v);
-      // Con un paso enfocado, re-encuadrarlo en el nuevo pitch/2D (REQ-2).
-      if (activeStepId && cameraMode === "step-focus") setStepFocusNonce((n) => n + 1);
+      // El toggle cambia la pose, pero no debe depender de que la cámara siga
+      // actualmente en follow: un drag o una parada seleccionada pueden dejarla
+      // en free/overview. Reafirmamos el contexto vigente sin limpiar nada.
+      if (activeStepId) {
+        setCameraMode("step-focus");
+        setStepFocusNonce((n) => n + 1);
+        return;
+      }
+      setCameraMode(followTripStop ? "follow-trip" : "follow-vehicle");
       return;
     }
     setCameraMode((prev) => (prev === "navigation-vehicle" ? "follow-vehicle" : "navigation-vehicle"));
-  }, [isTripMode, activeStepId, cameraMode]);
+  }, [isTripMode, activeStepId, followTripStop]);
 
   const handleResetCamera = useCallback(() => {
     setSelectedLineaId("line-65");
