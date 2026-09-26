@@ -109,17 +109,7 @@ function sameCoordinate(a: [number, number], b: [number, number]): boolean {
   return Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
 }
 
-function darkenHex(hex: string, factor = 0.58): string {
-  const normalized = hex.replace('#', '');
-  const expanded = normalized.length === 3
-    ? normalized.split('').map((part) => `${part}${part}`).join('')
-    : normalized;
-  if (!/^[0-9a-f]{6}$/i.test(expanded)) return hex;
-  const channel = (offset: number) => Math.round(parseInt(expanded.slice(offset, offset + 2), 16) * factor)
-    .toString(16)
-    .padStart(2, '0');
-  return `#${channel(0)}${channel(2)}${channel(4)}`;
-}
+const TRAVERSED_ROUTE_COLOR = '#A78BFA';
 
 /**
  * Parte una polilínea en el punto de proyección más cercano a una parada.
@@ -1153,7 +1143,7 @@ export function MapCanvas({
               {
                 type: 'Feature' as const,
                 geometry: { type: 'LineString' as const, coordinates: split.behind },
-                properties: { tone: 'behind', color: darkenHex(shade.color) },
+                properties: { tone: 'behind', color: TRAVERSED_ROUTE_COLOR },
               },
               {
                 type: 'Feature' as const,
