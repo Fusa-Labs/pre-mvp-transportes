@@ -27,6 +27,8 @@ import { LineBadge } from '@/components/ui/line-badge';
 import { AssistantBar } from '@/components/home/AssistantBar';
 import { AssistantAnswerSheet } from '@/components/home/AssistantAnswerSheet';
 import { tripMapUrl } from '@/components/home/AssistantAnswerCard';
+import { requestDeviceLocation, SIMULATED_USER_LOCATION } from '@/lib/config/user-location';
+import { nearbyStopsFor as findNearbyStops } from '@/lib/services/assistant-intent-service';
 import { LocationConsentModal } from '@/components/home/LocationConsentModal';
 import { PlaceSelector } from '@/components/home/PlaceSelector';
 import { AssistantWizard } from '@/components/home/AssistantWizard';
@@ -78,6 +80,8 @@ export default function HomePage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   // true = al terminar el selector de lugar, reabrir el wizard (paso 1 "Cambiar").
   const [wizardResume, setWizardResume] = useState(false);
+  // El botón de próxima llegada comparte el mismo recorrido completo que Mi Viaje.
+  const [wizardPurpose, setWizardPurpose] = useState<'next-arrival' | 'trip-plan'>('trip-plan');
   const { session, setConsentido, setLugar, setParadaSelId, setLastQuery } = useAssistantSession();
 
   useEffect(() => {
@@ -140,8 +144,9 @@ export default function HomePage() {
    * paso "Destino" se reanuda con la parada y el destino anteriores cargados
    * para confirmar o cambiar — nunca se los saltea.
    */
-  const openTripWizard = useCallback(() => {
-    setActiveIntent('trip_plan');
+  const openTripWizard = useCallback((purpose: 'next-arrival' | 'trip-plan' = 'trip-plan') => {
+    setWizardPurpose(purpose);
+    setActiveIntent(purpose === 'next-arrival' ? 'next_arrival' : 'trip_plan');
     setParadaRef(undefined);
     if (!session.consentido) {
       setWizardResume(true);
@@ -175,8 +180,8 @@ export default function HomePage() {
         setPhase('idle');
         return;
       }
-      if (intent === 'trip_plan') {
-        openTripWizard();
+      if (intent === 'trip_plan' || intent === 'next_arrival') {
+        openTripWizard(intent === 'next_arrival' ? 'next-arrival' : 'trip-plan');
         return;
       }
       gateLocationQuery({ intent });
@@ -184,18 +189,33 @@ export default function HomePage() {
     [activeIntent, phase, openTripWizard, gateLocationQuery],
   );
 
-  // ─── Handlers del modal de permiso (decorativo: demo simulada) ───
-  const handleConsentAllow = useCallback(() => {
+  // ─── Ubicación real o demo. La API se invoca exclusivamente desde el CTA. ───
+  const openWizardForLocation = useCallback((location: LocationPoint) => {
+    const nearby = findNearbyStops({
+      ref: { lat: location.lat, lng: location.lng, name: location.name, isSimulated: Boolean(location.source === 'simulated') },
+      favorites: [],
+      positions,
+    }, 1);
+    if (nearby.length === 0) {
+      throw new Error('No encontramos paradas de la red cerca de tu ubicación. Podés usar Parque Centenario.');
+    }
     setConsentido(true);
-    // "Permitir" concede sobre Parque Centenario, pero el flujo muestra el
-    // selector igual (PC está como quick chip) para elegir dónde se espera.
-    setPhase('selector');
-  }, [setConsentido]);
+    setLugar({ name: location.name, address: location.address, lat: location.lat, lng: location.lng, stopId: location.stopId });
+    setParadaSelId(null);
+    setPendingQuery(null);
+    setPhase('idle');
+    setWizardResume(false);
+    setWizardOpen(true);
+  }, [positions, setConsentido, setLugar, setParadaSelId]);
 
-  const handleConsentChoosePlace = useCallback(() => {
-    setConsentido(true);
-    setPhase('selector');
-  }, [setConsentido]);
+  const handleConsentUseReal = useCallback(async () => {
+    const location = await requestDeviceLocation();
+    openWizardForLocation({ ...location, source: 'text' });
+  }, [openWizardForLocation]);
+
+  const handleConsentUseDemo = useCallback(() => {
+    openWizardForLocation({ ...SIMULATED_USER_LOCATION, source: 'simulated' });
+  }, [openWizardForLocation]);
 
   const handleConsentClose = useCallback(() => {
     setPhase('idle');
@@ -223,6 +243,12 @@ export default function HomePage() {
         setWizardOpen(true);
         return;
       }
+      if (wizardPurpose === 'next-arrival') {
+        setPendingQuery(null);
+        setPhase('idle');
+        setWizardOpen(true);
+        return;
+      }
       const query =
         pendingQuery ??
         (session.lastQuery
@@ -237,7 +263,7 @@ export default function HomePage() {
       // mismo batch; el useMemo de answer resuelve ya con el lugar nuevo.
       runAssistant(query, { paradaRef: place.stopId });
     },
-    [pendingQuery, session.lastQuery, setLugar, setParadaSelId, wizardResume, runAssistant],
+    [pendingQuery, session.lastQuery, setLugar, setParadaSelId, wizardResume, wizardPurpose, runAssistant],
   );
 
   const handlePlaceCancel = useCallback(() => {
@@ -291,9 +317,9 @@ export default function HomePage() {
    * trazado, la línea resaltada y sus unidades activas a la vista.
    */
   const handleOpenTripOnMap = useCallback(
-    (trip: TripOption, origin: LocationPoint) => {
+    (trip: TripOption, origin: LocationPoint, boardingStopId?: string, arrival?: import('@/types/transport').EstimacionLlegada) => {
       setPhase('idle');
-      router.push(tripMapUrl(trip, origin));
+      router.push(tripMapUrl(trip, origin, { boardingStopId: boardingStopId ?? origin.stopId, arrival }));
     },
     [router],
   );
@@ -351,6 +377,17 @@ export default function HomePage() {
   const handleChangePlace = useCallback(() => {
     setPhase('selector');
   }, []);
+
+  /**
+   * sdd/trip-options-upgrade 2.5 (fix verify #4108): re-pick de destino desde el
+   * estado zero-bus de la hoja de Home. Reabre el wizard "¿Cómo llego a…?" en el
+   * paso Destino CONSERVANDO el origen: `wizardResumeGuide` reanuda con la parada
+   * elegida (`session.paradaSelId`) y el último destino, sin resetear el lugar ni
+   * el consentimiento. Reusa el mismo gate que los chips (openTripWizard).
+   */
+  const handleRepickDestination = useCallback(() => {
+    openTripWizard('trip-plan');
+  }, [openTripWizard]);
 
   const stops = useMemo(
     () =>
@@ -632,14 +669,15 @@ export default function HomePage() {
           onSelectCandidate={handleSelectCandidate}
           onAskArrivalsAt={handleAskArrivalsAt}
           onOpenTripOnMap={handleOpenTripOnMap}
+          onRepickDestination={handleRepickDestination}
         />
       )}
 
       {/* Flujo PBI-019: permiso decorativo → selector de lugar */}
       {phase === 'consent' && (
         <LocationConsentModal
-          onAllow={handleConsentAllow}
-          onChoosePlace={handleConsentChoosePlace}
+          onUseReal={handleConsentUseReal}
+          onUseDemo={handleConsentUseDemo}
           onClose={handleConsentClose}
         />
       )}

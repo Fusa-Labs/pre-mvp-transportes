@@ -5,6 +5,7 @@ export type CameraMode =
   | 'free'
   | 'follow-user'
   | 'follow-vehicle'
+  | 'follow-trip'
   | 'navigation-vehicle';
 
 export interface VehicleCameraFrame {

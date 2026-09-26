@@ -291,6 +291,62 @@ function resolveNearestStop(ctx: AssistantContext): AssistantAnswer {
   };
 }
 
+/**
+ * sdd/trip-options-upgrade 2.4: reintenta planTrip sobre paradas candidatas
+ * (≤6 por punta) antes de declarar no-coverage. Puro y acotado: como máximo
+ * 6 orígenes × 1 destino + 1 origen × 6 destinos.
+ */
+function retryPlanAcrossCandidates(
+  origin: LocationPoint,
+  destination: LocationPoint,
+  ctx: AssistantContext,
+): TripOption[] | null {
+  const oCands = TripPlannerService.findCandidateStops(origin).slice(0, 6);
+  const dCands = TripPlannerService.findCandidateStops(destination).slice(0, 6);
+  const tried = new Set<string>();
+  const hits: TripOption[] = [];
+  const pushHits = (o: LocationPoint, d: LocationPoint) => {
+    const key = `${o.lat.toFixed(5)},${o.lng.toFixed(5)}>${d.lat.toFixed(5)},${d.lng.toFixed(5)}`;
+    if (tried.has(key)) return;
+    tried.add(key);
+    const found = TripPlannerService.planTrip(o, d);
+    if (found.length > 0) hits.push(...found.slice(0, 2));
+  };
+  for (const c of oCands) {
+    pushHits({ name: c.stop.nombre, lat: c.stop.lat, lng: c.stop.lng, stopId: c.stop.id }, destination);
+    if (hits.length > 0) break;
+  }
+  if (hits.length === 0) {
+    for (const c of dCands) {
+      pushHits(origin, { name: c.stop.nombre, lat: c.stop.lat, lng: c.stop.lng, stopId: c.stop.id });
+      if (hits.length > 0) break;
+    }
+  }
+  if (hits.length === 0) return null;
+  return rankWorkingFirst(hits, ctx);
+}
+
+/**
+ * sdd/trip-options-upgrade 2.4: ranking working-first — primero los viajes
+ * cuya línea de abordaje tiene llegadas vivas en el feed, luego por costo
+ * (transbordos, duración). No toca Pareto/top-5 del planner, solo ordena.
+ */
+function rankWorkingFirst(trips: TripOption[], ctx: AssistantContext): TripOption[] {
+  if (trips.length <= 1 || ctx.positions.length === 0) return trips;
+  const hasLive = (t: TripOption): boolean => {
+    const ride = t.legs.find((leg) => leg.type === "ride");
+    if (!ride) return false;
+    const stopId = ride.fromStop.id;
+    try {
+      const arrivals = TransportService.getArrivals(stopId, ctx.positions);
+      return arrivals.some((a) => a.lineaId === ride.lineaId);
+    } catch {
+      return false;
+    }
+  };
+  return [...trips].sort((a, b) => Number(hasLive(b)) - Number(hasLive(a)));
+}
+
 function resolveTripPlan(q: AssistantQuery, ctx: AssistantContext): AssistantAnswer {
   const destText = q.destinoText?.trim();
   if (!destText) {
@@ -314,7 +370,15 @@ function resolveTripPlan(q: AssistantQuery, ctx: AssistantContext): AssistantAns
   }
 
   const origin = ctx.originPoint ?? refPoint(ctx.ref);
-  const trips = TripPlannerService.planTrip(origin, destination);
+  // sdd/trip-options-upgrade 2.4: retry multi-stop antes de no-coverage.
+  // stop[0] puede dar vacío pero stop[1] del mismo trayecto sí combina.
+  // Ranking working-first: hits con llegadas vivas primero, luego por costo.
+  let trips = TripPlannerService.planTrip(origin, destination);
+  if (trips.length === 0) {
+    trips = retryPlanAcrossCandidates(origin, destination, ctx) ?? [];
+  } else {
+    trips = rankWorkingFirst(trips, ctx);
+  }
   if (trips.length === 0) {
     return {
       kind: "no-coverage",
@@ -408,9 +472,23 @@ export function resolveTripGuide(
     lng: stop.lng,
     stopId: stop.id,
   };
-  const trips = TripPlannerService.planTrip(originPoint, destination);
-  const arrivals = topArrivals(stop, ctx).slice(0, 3);
+  // sdd/trip-options-upgrade 2.4: retry sobre paradas candidatas del mismo
+  // trayecto (≤6) antes de rendirse a no-coverage; ranking working-first.
+  let trips = TripPlannerService.planTrip(originPoint, destination);
+  if (trips.length === 0) {
+    trips = retryPlanAcrossCandidates(originPoint, destination, ctx) ?? [];
+  } else {
+    trips = rankWorkingFirst(trips, ctx);
+  }
   const trip = trips[0] ?? null;
+  // Mostrar primero unidades que pertenecen al recorrido recomendado. Esto hace
+  // que cada CTA represente el colectivo concreto que el usuario espera.
+  const recommendedLineId = trip?.legs.find((leg) => leg.type === 'ride')?.lineaId;
+  const allArrivals = topArrivals(stop, ctx);
+  const matchingArrivals = recommendedLineId
+    ? allArrivals.filter((arrival) => arrival.lineaId === recommendedLineId)
+    : allArrivals;
+  const arrivals = (matchingArrivals.length > 0 ? matchingArrivals : allArrivals).slice(0, 3);
   return {
     kind: 'trip-guide',
     headline: trip

@@ -1,40 +1,26 @@
-/**
- * LocationConsentModal — PBI-019
- * Permiso de ubicación del asistente de /inicio. Es DECORATIVO: esta demo
- * no pide geolocation al navegador; al aceptar se usa la ubicación
- * simulada (Parque Centenario) y el copy lo dice explícitamente.
- * El día que se conecte navigator.geolocation (TODO(geo-real) en
- * user-location.ts), este modal pasa a dispararlo de verdad sin cambiar la API.
- *
- * Sin backdrop-blur (convención overlays, PBI-015). Targets ≥ 44px, tokens DESIGN.MD.
- */
-
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { Navigation, MapPin, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MapPin, Navigation, X } from 'lucide-react';
 
 interface LocationConsentModalProps {
-  /** "Permitir": consentimiento + referencia simulada de demo. */
-  onAllow: () => void;
-  /** Consentimiento + ir directo al selector de lugar. */
-  onChoosePlace: () => void;
-  /** Cerrar sin conceder (chip vuelve a off). */
+  /** Requests the browser's native location permission from this button gesture. */
+  onUseReal: () => Promise<void>;
+  /** Uses the fixed Parque Centenario demo reference. */
+  onUseDemo: () => void;
   onClose: () => void;
 }
 
-export function LocationConsentModal({
-  onAllow,
-  onChoosePlace,
-  onClose,
-}: LocationConsentModalProps) {
+export function LocationConsentModal({ onUseReal, onUseDemo, onClose }: LocationConsentModalProps) {
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const [isRequesting, setIsRequesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     primaryRef.current?.focus();
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
         onClose();
       }
     };
@@ -42,62 +28,91 @@ export function LocationConsentModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  const useRealLocation = async () => {
+    setError(null);
+    setIsRequesting(true);
+    try {
+      await onUseReal();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'No pudimos usar tu ubicación real.');
+    } finally {
+      setIsRequesting(false);
+    }
+  };
+
+  // Mirror of useRealLocation: the demo reference can also resolve to zero
+  // nearby stops (openWizardForLocation throws synchronously), so catch it
+  // here instead of letting the throw escape the button's onClick.
+  const useDemoLocation = () => {
+    setError(null);
+    try {
+      onUseDemo();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'No pudimos usar la ubicación demo.');
+    }
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 p-4 backdrop-blur-md sm:items-center"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !isRequesting) onClose();
       }}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="consent-title"
-        className="w-full max-w-[360px] bg-canvas border border-hairline rounded-3xl p-5 shadow-[0_16px_45px_-6px_rgba(16,29,61,0.35)] animate-in fade-in slide-in-from-bottom-4 duration-200"
+        className="w-full max-w-[360px] rounded-3xl border border-white/15 bg-canvas/92 p-5 shadow-[0_24px_70px_-16px_rgba(0,0,0,0.7)] ring-1 ring-ink/10 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-200"
       >
         <div className="flex items-start justify-between">
-          <div className="w-11 h-11 rounded-2xl bg-canvas-soft border border-hairline flex items-center justify-center">
-            <Navigation className="w-5 h-5 text-electric-blue" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-hairline bg-canvas-soft">
+            <Navigation className="h-5 w-5 text-electric-blue" />
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Cerrar sin compartir ubicación"
-            className="w-8 h-8 rounded-full bg-canvas-soft hover:bg-field border border-hairline flex items-center justify-center text-text-muted hover:text-ink transition-colors"
+            disabled={isRequesting}
+            aria-label="Cerrar ubicación"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-hairline bg-canvas-soft text-text-muted transition-colors hover:bg-field hover:text-ink disabled:opacity-50"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <h2 id="consent-title" className="text-lg font-bold text-ink mt-3">
+        <h2 id="consent-title" className="mt-3 text-lg font-bold text-ink">
           ¿Usamos tu ubicación?
         </h2>
-        <p className="text-sm text-text-muted leading-snug mt-1.5">
-          Para decirte qué colectivos pasan cerca y cuánto tardan en llegar.
+        <p className="mt-1.5 text-sm leading-snug text-text-muted">
+          Para mostrarte las paradas cercanas, los colectivos que te sirven y cuándo llegan.
         </p>
-        <p className="text-xs text-text-faint mt-2 flex items-start gap-1.5">
-          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            En esta demo usamos una <strong className="font-bold text-text-muted">ubicación
-            simulada: Parque Centenario</strong>. Después podés elegir otra avenida o lugar.
-          </span>
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-text-faint">
+          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>Podés usar tu ubicación actual o recorrer el flujo con Parque Centenario.</span>
         </p>
+        {error && (
+          <p role="alert" className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs font-medium leading-snug text-amber-800 dark:text-amber-200">
+            {error}
+          </p>
+        )}
 
-        <div className="flex flex-col gap-2 mt-5">
+        <div className="mt-5 flex flex-col gap-2">
           <button
             ref={primaryRef}
             type="button"
-            onClick={onAllow}
-            className="w-full min-h-[48px] bg-ink text-canvas rounded-xl font-bold text-sm active:scale-[0.98] transition-transform"
+            onClick={useRealLocation}
+            disabled={isRequesting}
+            className="min-h-[48px] w-full rounded-xl bg-ink text-sm font-bold text-canvas transition-transform active:scale-[0.98] disabled:opacity-60"
           >
-            Permitir (demo)
+            {isRequesting ? 'Buscando ubicación…' : 'Usar ubicación real'}
           </button>
           <button
             type="button"
-            onClick={onChoosePlace}
-            className="w-full min-h-[44px] bg-canvas-soft text-ink border border-hairline rounded-xl font-semibold text-sm hover:bg-field active:scale-[0.98] transition-all"
+            onClick={useDemoLocation}
+            disabled={isRequesting}
+            className="min-h-[44px] w-full rounded-xl border border-hairline bg-canvas-soft text-sm font-semibold text-ink transition-all hover:bg-field active:scale-[0.98] disabled:opacity-60"
           >
-            Elegir otro lugar
+            Usar ubicación demo
           </button>
         </div>
       </div>

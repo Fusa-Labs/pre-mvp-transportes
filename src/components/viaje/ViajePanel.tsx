@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { ArrowRight, Footprints, Bus, ChevronRight, ChevronDown, Layers, X, Info } from "lucide-react";
 import { TripOption, LocationPoint } from "@/types/trip-planner";
 import { TripPlannerService } from "@/lib/services/trip-planner-service";
 import { useDragCollapse } from "@/lib/hooks/use-drag-collapse";
+import type { BoardingOptionRow } from "@/lib/services/trip-boarding-options";
 
 interface ViajePanelProps {
   options: TripOption[];
@@ -16,6 +17,17 @@ interface ViajePanelProps {
   destinationLocation?: LocationPoint | null;
   selectedStepId?: string | null;
   onSelectStep?: (stepId: string | null) => void;
+  /** sdd/trip-options-upgrade 2.2: filas de abordaje (≤3) por parada de subida. */
+  boardingOptions?: BoardingOptionRow[];
+  selectedBoardingUnitKey?: string | null;
+  onSelectBoardingOption?: (unitKey: string) => void;
+  /** sdd/trip-options-upgrade display: etiquetas vivas (EstimacionLlegada). */
+  liveHeroLabel?: string | null;
+  liveFooterLabel?: string | null;
+  /** sdd/trip-options-upgrade 2.3: espeja ViajeHeader:24 — reframe en expand+collapse. */
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** sdd/trip-options-upgrade 2.5: re-pick de destino sin perder el origen. */
+  onRepickDestination?: () => void;
 }
 
 export default function ViajePanel({
@@ -28,6 +40,13 @@ export default function ViajePanel({
   destinationLocation = null,
   selectedStepId = null,
   onSelectStep,
+  boardingOptions = [],
+  selectedBoardingUnitKey = null,
+  onSelectBoardingOption,
+  liveHeroLabel = null,
+  liveFooterLabel = null,
+  onCollapsedChange,
+  onRepickDestination,
 }: ViajePanelProps) {
   // Diagnóstico de cobertura cuando no hay rutas: ¿qué lado falla?
   const coverageInfo = useMemo(() => {
@@ -44,7 +63,32 @@ export default function ViajePanel({
   const [activeTab, setActiveTab] = useState<"opciones" | "guia">("opciones");
   const { collapsed, toggle, handleProps } = useDragCollapse(false);
 
+  // sdd/trip-options-upgrade 2.3: notifica expand Y collapse (mirror ViajeHeader).
+  useEffect(() => {
+    onCollapsedChange?.(collapsed);
+  }, [collapsed, onCollapsedChange]);
+
   const selectedTrip = options.find((o) => o.id === selectedOptionId) || options[0] || null;
+
+  // White-card labels (sdd/trip-sheet-ui-fix 1.3): arrival clock vs total
+  // duration as two distinct fields. Presentation-only derivation from the
+  // already-resolved duration — no routing/ETA recomputation. Clock is read
+  // in an effect (render must stay pure per react-hooks/purity).
+  const [arrivalLabel, setArrivalLabel] = useState<string | null>(null);
+  useEffect(() => {
+    // Deferred to rAF like the rest of the codebase (react-hooks/set-state-in-effect).
+    const frame = window.requestAnimationFrame(() => {
+      if (!selectedTrip) {
+        setArrivalLabel(null);
+        return;
+      }
+      const d = new Date(Date.now() + selectedTrip.totalDurationMinutes * 60000);
+      const hh = d.getHours().toString().padStart(2, "0");
+      const mm = d.getMinutes().toString().padStart(2, "0");
+      setArrivalLabel(`Llegás ${hh}:${mm}`);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedTrip]);
 
   // CASO: Sin rutas disponibles (explicación humana, sin tecnicismos de RAPTOR ni corredores)
   if (options.length === 0 && hasPointsSelected) {
@@ -76,13 +120,24 @@ export default function ViajePanel({
             )}
           </div>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-3.5 px-4 py-1.5 rounded-full bg-canvas-soft hover:bg-field border border-hairline text-xs font-bold text-ink transition-colors active:scale-95"
-        >
-          Cerrar búsqueda
-        </button>
+        <div className="mt-3.5 flex items-center gap-2">
+          {onRepickDestination && (
+            <button
+              type="button"
+              onClick={onRepickDestination}
+              className="px-4 py-1.5 rounded-full bg-ink text-canvas text-xs font-bold transition-colors active:scale-95"
+            >
+              Elegir otro destino
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-full bg-canvas-soft hover:bg-field border border-hairline text-xs font-bold text-ink transition-colors active:scale-95"
+          >
+            Cerrar búsqueda
+          </button>
+        </div>
       </aside>
     );
   }
@@ -102,19 +157,23 @@ export default function ViajePanel({
     );
   }
 
+  // Fixed-height sheet (sdd/trip-sheet-ui-fix 2.1): expanded height is fixed
+  // and dvh-capped so the top edge never rises above the recenter controls
+  // nor covers the bus marker. Collapsed stays a 76px strip.
   return (
     <aside
       aria-label="Panel de opciones de viaje"
       className="fixed bottom-[84px] left-1/2 -translate-x-1/2 z-40 w-[calc(100vw-24px)] max-w-[420px] bg-canvas dark:bg-canvas border border-hairline rounded-[28px] shadow-[0_16px_45px_-4px_rgba(0,0,0,0.22)] dark:shadow-[0_20px_50px_-4px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 overflow-hidden transition-[max-height] duration-300"
-      style={{ maxHeight: collapsed ? "76px" : "50dvh" }}
+      style={{ height: collapsed ? 76 : "min(46dvh, 430px)", maxHeight: collapsed ? "76px" : "min(46dvh, 430px)" }}
     >
       {/* Grip de arrastre */}
       <div className="pt-1.5 pb-0.5 flex justify-center shrink-0" aria-hidden="true">
         <div className="w-9 h-1 rounded-full bg-hairline" />
       </div>
-      {/* Header: tiempo hero + toggle de vista texto (arrastrable) */}
+      {/* Header: pinned selected-trip summary (outside the scroll container,
+          opaque bg so scrolled content slides under it) + view toggle */}
       <div
-        className="px-4 pt-2 pb-2 flex items-center justify-between shrink-0 select-none"
+        className="px-4 pt-2 pb-2 flex items-center justify-between shrink-0 select-none bg-canvas dark:bg-canvas relative z-10"
         {...handleProps}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("button")) return;
@@ -124,8 +183,8 @@ export default function ViajePanel({
       >
         <div className="flex items-baseline gap-2 min-w-0">
           {selectedTrip && (
-            <span className="text-lg font-black text-ink tracking-tight tabular-nums">
-              ~{selectedTrip.totalDurationMinutes} min
+            <span aria-live="polite" className="text-lg font-black text-ink tracking-tight tabular-nums">
+              {liveHeroLabel ?? `${selectedTrip.totalDurationMinutes} min total`}
             </span>
           )}
           <span className="text-xs text-text-muted truncate">
@@ -176,9 +235,55 @@ export default function ViajePanel({
 
       {/* Contenido según la pestaña activa (oculto al contraer) */}
       {!collapsed && (
-      <div className="p-3 overflow-y-auto no-scrollbar space-y-2.5 flex-1">
+      <div className="p-3 overflow-y-auto overscroll-contain no-scrollbar space-y-2.5 flex-1 min-h-0">
+        {/* Opciones/Pasos scroll internally (2.2): min-h-0 lets the flex child
+            shrink so overflow-y-auto engages; overscroll-contain keeps sheet
+            scroll from chaining to the map. */}
         {activeTab === "opciones" ? (
           <div className="space-y-2">
+            {/* sdd/trip-options-upgrade 2.2: filas de abordaje (≤3) — unidad×ETA×línea.
+                Tap → mapa (correct bus) en un render. Aditivo sobre tripOptions. */}
+            {boardingOptions.length > 0 && (
+              <div className="space-y-1.5" aria-label="Próximos colectivos en tu parada">
+                <p className="px-1 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+                  En tu parada · {boardingOptions.length} opcion{boardingOptions.length > 1 ? "es" : ""}
+                </p>
+                {boardingOptions.slice(0, 3).map((row) => {
+                  const isRowSelected = row.unitKey === selectedBoardingUnitKey;
+                  return (
+                    <button
+                      key={row.unitKey}
+                      type="button"
+                      onClick={() => onSelectBoardingOption?.(row.unitKey)}
+                      aria-label={`Tomar línea ${row.lineaNumero}, coche ${row.interno}, ${row.displayLabel}`}
+                      className={`w-full text-left px-3 py-2 rounded-[16px] transition-colors active:scale-[0.99] flex items-center justify-between gap-2 ${
+                        isRowSelected
+                          ? "bg-canvas-soft ring-1 ring-ink/15"
+                          : "hover:bg-canvas-soft/60"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="px-2 py-0.5 rounded-full text-[11px] font-black shadow-2xs shrink-0"
+                          style={{ backgroundColor: row.colorHex, color: "#FFFFFF" }}
+                        >
+                          {row.lineaNumero}
+                        </span>
+                        <span className="text-xs font-bold text-ink truncate">
+                          Coche {row.interno}
+                          <span className="ml-1.5 text-[10px] font-semibold text-text-muted">
+                            {row.kind === "same-nearest" ? "· más próximo" : row.kind === "same-late" ? "· siguiente" : "· otra línea"}
+                          </span>
+                        </span>
+                      </span>
+                      <span aria-live="polite" className="text-xs font-bold text-[#16a34a] shrink-0 tabular-nums">
+                        {row.displayLabel}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {options.map((opt) => {
               const isSelected = opt.id === (selectedTrip?.id || selectedOptionId);
 
@@ -343,8 +448,8 @@ export default function ViajePanel({
             })}
 
             <div className="pt-2 flex items-center justify-between">
-              <span className="text-xs text-text-muted">
-                Llegada ~{selectedTrip.totalDurationMinutes} min
+              <span aria-live="polite" className="text-xs text-text-muted">
+                {liveFooterLabel ?? arrivalLabel ?? `Llegada ~${selectedTrip.totalDurationMinutes} min`}
               </span>
               <button
                 type="button"

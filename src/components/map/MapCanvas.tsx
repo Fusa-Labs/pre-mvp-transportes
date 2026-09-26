@@ -25,8 +25,8 @@ import { useReducedMotion } from 'motion/react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-// Configurar URL estática del worker de MapLibre servido desde /public/maplibre
-// Esto resuelve el error "Failed to load module script: MIME type text/html" bajo Next.js Turbopack
+// Serve the MapLibre worker and its shared module from public/.
+// scripts/copy-maplibre-worker.mjs keeps both files version-matched for Next.js.
 if (typeof window !== 'undefined') {
   maplibregl.setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 }
@@ -145,6 +145,8 @@ export interface MapCanvasProps {
   userLocation?: UserLocationPoint | null;
   /** El sheet expandido tapa el mapa → pausa el pulso (spec #861) */
   routePulsePaused?: boolean;
+  /** Runs a light pulse over the ride leg while the user is onboard. */
+  tripPulseActive?: boolean;
   /** Modo "elegir en el mapa" del planificador: el próximo tap fija un punto. */
   pickMode?: boolean;
   onMapPick?: (lngLat: [number, number]) => void;
@@ -158,8 +160,10 @@ export interface MapCanvasProps {
   tripSegments?: TripSegmentItem[] | null;
   /** IDs de las paradas utilizadas en el viaje activo para aislar en el mapa */
   tripUsedStopIds?: string[] | null;
-  /** Modo foco: oculta buses, rutas base, paradas y POIs; muestra solo el trip */
+  /** Modo foco: conserva la unidad elegida, y deja visibles solo el viaje y sus paradas. */
   tripFocus?: boolean;
+  /** Parada de abordaje para el modo 'follow-trip': la cámara encuadra bondi + parada juntos. */
+  followTripStop?: { lat: number; lng: number } | null;
   className?: string;
 }
 
@@ -168,8 +172,6 @@ export interface MapCanvasProps {
  * Quedan visibles: trip-seg-*, planner-*, buildings3d, user-*, basemap.
  */
 const TRIP_FOCUS_HIDDEN_LAYERS = [
-  'buses', 'buses-badge', 'buses-heading', 'buses-iso',
-  'bus-glow', 'bus-labels', 'bus-shadow', 'bus-trail',
   'route-arrows', 'route-casing', 'route-flow-head', 'route-flow-tail',
   'route-halo-a', 'route-halo-b', 'route-line',
   'route-stops', 'route-stops-label', 'stops',
@@ -324,12 +326,15 @@ export function MapCanvas({
   stopFocusNonce = 0,
   selectedKey = null,
   cameraMode = 'overview',
+  // sdd/trip-options-upgrade 3.2: padding dinámico (160 colapsado / 514 expandido).
+  // Sin cambio de fitBounds — solo el aire inferior que pide el sheet.
   cameraBottomPadding = 116,
   onCameraModeChange,
   center = [-58.3816, -34.6037],
   theme = 'light',
   userLocation = null,
   routePulsePaused = false,
+  tripPulseActive = false,
   pickMode = false,
   onMapPick,
   focusRequest = null,
@@ -338,6 +343,7 @@ export function MapCanvas({
   tripSegments = null,
   tripUsedStopIds = null,
   tripFocus = false,
+  followTripStop = null,
   className,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -351,6 +357,7 @@ export function MapCanvas({
   const tripFocusRef = useRef(tripFocus);
   const selectedRef = useRef(selectedKey);
   const selectedStopIdRef = useRef<string | null>(selectedStopId);
+  const followTripStopRef = useRef<{ lat: number; lng: number } | null>(followTripStop);
   const cameraModeRef = useRef(cameraMode);
   const cameraBottomPaddingRef = useRef(cameraBottomPadding);
   const cameraModeHandlerRef = useRef(onCameraModeChange);
@@ -366,6 +373,7 @@ export function MapCanvas({
   const userLocationRef = useRef<UserLocationPoint | null>(userLocation);
   const userLocationApplyRef = useRef<() => void>(() => {});
   const pulsePausedRef = useRef<boolean>(routePulsePaused);
+  const tripPulseActiveRef = useRef<boolean>(tripPulseActive);
   const pickModeRef = useRef<boolean>(pickMode);
   const pickHandlerRef = useRef(onMapPick);
   const plannerPointsRef = useRef<PlannerMapPoints | null>(plannerPoints);
@@ -530,6 +538,24 @@ export function MapCanvas({
     let lastResizeW = 0;
     let lastResizeH = 0;
     let resizeRafId: number | null = null;
+    let layoutRefreshRafId: number | null = null;
+
+    // Safari puede crear el canvas mientras React todavía estabiliza el
+    // layout de la ruta. El viewport WebGL es correcto, pero WebKit puede
+    // conservar un frame vacío/parcial hasta el próximo repaint. Esperar dos
+    // frames (no un timeout) sincroniza el resize con el layout compuesto.
+    const refreshCanvasAfterStableLayout = () => {
+      if (layoutRefreshRafId !== null) return;
+      layoutRefreshRafId = requestAnimationFrame(() => {
+        layoutRefreshRafId = requestAnimationFrame(() => {
+          layoutRefreshRafId = null;
+          if (disposed || !mapRef.current || el.clientWidth === 0 || el.clientHeight === 0) return;
+          mapRef.current.resize();
+          mapRef.current.triggerRepaint();
+        });
+      });
+    };
+
     const ro = new ResizeObserver(() => {
       if (disposed) return;
       const box = el.getBoundingClientRect();
@@ -544,9 +570,13 @@ export function MapCanvas({
         lastResizeW = Math.round(b.width);
         lastResizeH = Math.round(b.height);
         mapRef.current.resize();
+        refreshCanvasAfterStableLayout();
       });
     });
     ro.observe(el);
+
+    const onPageShow = () => refreshCanvasAfterStableLayout();
+    window.addEventListener('pageshow', onPageShow);
 
     map.on('error', (e) => {
       console.warn('[MapLibre]', e);
@@ -763,7 +793,9 @@ export function MapCanvas({
       // padding respeta el sheet.
       const selKey = selectedRef.current;
       const mode = cameraModeRef.current;
-      if (selKey && (mode === 'follow-vehicle' || mode === 'navigation-vehicle')) {
+      if (selKey && mode === 'follow-trip') {
+        applyFollowTripFrame(TICK_MS + 120);
+      } else if (selKey && (mode === 'follow-vehicle' || mode === 'navigation-vehicle')) {
         const live = motionMap.get(selKey)?.frame(Date.now());
         if (live) {
           const frame = vehicleCameraFrame(live, mode);
@@ -785,12 +817,16 @@ export function MapCanvas({
     ingestRef.current = ingestPositions;
     refreshRef.current = refreshVehicles;
     cameraApplyRef.current = () => {
-      const selKey = selectedRef.current;
       const mode = cameraModeRef.current;
       if (mode === 'follow-user') {
         followUserFrame();
         return;
       }
+      if (mode === 'follow-trip') {
+        applyFollowTripFrame(450);
+        return;
+      }
+      const selKey = selectedRef.current;
       if (!selKey || (mode !== 'follow-vehicle' && mode !== 'navigation-vehicle')) return;
       const live = currentMap.get(selKey) ?? motionMap.get(selKey)?.frame(Date.now());
       if (!live) return;
@@ -829,6 +865,47 @@ export function MapCanvas({
         bearing: 0,
         duration: 650,
         padding: { bottom: cameraBottomPaddingRef.current },
+      });
+    };
+    // Encuadre dual bondi + parada (modo 'follow-trip'): consume el MISMO frame
+    // renderizado que el símbolo. Sin parada disponible, degrada a follow-vehicle.
+    const applyFollowTripFrame = (duration: number) => {
+      const selKey = selectedRef.current;
+      if (!selKey) return;
+      const live = currentMap.get(selKey) ?? motionMap.get(selKey)?.frame(Date.now());
+      if (!live) return;
+      const stop = followTripStopRef.current;
+      if (stop) {
+        map.fitBounds(
+          [
+            [Math.min(live.lng, stop.lng), Math.min(live.lat, stop.lat)],
+            [Math.max(live.lng, stop.lng), Math.max(live.lat, stop.lat)],
+          ],
+          {
+            padding: {
+              top: 200,
+              bottom: cameraBottomPaddingRef.current + 80,
+              left: 48,
+              right: 48,
+            },
+            maxZoom: 16.2,
+            pitch: 0,
+            bearing: 0,
+            duration,
+            easing: (t) => t,
+          },
+        );
+        return;
+      }
+      const frame = vehicleCameraFrame(live, 'follow-vehicle');
+      map.easeTo({
+        center: frame.center,
+        zoom: frame.zoom,
+        pitch: frame.pitch,
+        bearing: frame.bearing,
+        duration,
+        easing: (t) => t,
+        padding: { bottom: cameraBottomPaddingRef.current + 48 },
       });
     };
     userLocationApplyRef.current = () => {
@@ -990,6 +1067,7 @@ export function MapCanvas({
     const stopFollow = () => {
       if (
         cameraModeRef.current === 'follow-vehicle' ||
+        cameraModeRef.current === 'follow-trip' ||
         cameraModeRef.current === 'navigation-vehicle' ||
         cameraModeRef.current === 'follow-user'
       ) {
@@ -1027,6 +1105,10 @@ export function MapCanvas({
     let lastRotateRefresh = 0;
     const scheduleRotateRefresh = () => {
       const now = performance.now();
+      if (tripPulseActiveRef.current && !reduceMotionRef.current && map.getLayer('trip-seg-pulse')) {
+        const tripPhase = Math.floor((now % (TRIP_FLOW_STEP_MS * TRIP_DASH.length)) / TRIP_FLOW_STEP_MS);
+        if (tripPhase !== lastTripFlowPhase) { lastTripFlowPhase = tripPhase; map.setPaintProperty('trip-seg-pulse', 'line-dasharray', TRIP_DASH[tripPhase]!); }
+      }
       if (now - lastRotateRefresh < 120) return;
       lastRotateRefresh = now;
       refreshVehicles();
@@ -1055,7 +1137,10 @@ export function MapCanvas({
       [0, 3, 5, 4], [0, 4, 5, 3], [0, 5, 5, 2], [0, 6, 5, 1],
     ];
     const FLOW_STEP_MS = 80;
+    const TRIP_FLOW_STEP_MS = 90;
+    const TRIP_DASH: number[][] = [[0, 0, 2, 8], [0, 1, 2, 7], [0, 2, 2, 6], [0, 3, 2, 5], [0, 4, 2, 4], [0, 5, 2, 3], [0, 6, 2, 2], [0, 7, 2, 1], [0, 8, 2, 0], [1, 8, 1, 0]];
     let lastFlowPhase = -1;
+    let lastTripFlowPhase = -1;
     const applyFlowPhase = (phase: number) => {
       if (!map.getLayer('route-flow-head')) return;
       map.setPaintProperty('route-flow-head', 'line-dasharray', DASH_HEAD[phase]!);
@@ -1083,6 +1168,10 @@ export function MapCanvas({
       pulseRaf = null;
       if (disposed) return;
       const now = performance.now();
+      if (tripPulseActiveRef.current && !reduceMotionRef.current && map.getLayer('trip-seg-pulse')) {
+        const tripPhase = Math.floor((now % (TRIP_FLOW_STEP_MS * TRIP_DASH.length)) / TRIP_FLOW_STEP_MS);
+        if (tripPhase !== lastTripFlowPhase) { lastTripFlowPhase = tripPhase; map.setPaintProperty('trip-seg-pulse', 'line-dasharray', TRIP_DASH[tripPhase]!); }
+      }
       const phase = (((now - PULSE_ORIGIN) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS) * Math.PI * 2;
       const breatheA = 0.5 - 0.5 * Math.cos(phase);
       const breatheB = 0.5 - 0.5 * Math.cos(phase + Math.PI);
@@ -1109,8 +1198,10 @@ export function MapCanvas({
       }
       setHalo('route-halo-a', 0, 6);
       setHalo('route-halo-b', 0, 10);
+      if (map.getLayer('trip-seg-pulse')) map.setPaintProperty('trip-seg-pulse', 'line-opacity', 0);
     };
     const startPulse = () => {
+      if (map.getLayer('trip-seg-pulse')) map.setPaintProperty('trip-seg-pulse', 'line-opacity', tripPulseActiveRef.current ? 0.88 : 0);
       if (pulsePausedRef.current) return;
       if (reduceMotionRef.current) {
         setHalo('route-halo-a', 0.16, 8);
@@ -2185,6 +2276,11 @@ export function MapCanvas({
         },
       });
 
+      map.addLayer({
+        id: 'trip-seg-pulse', type: 'line', source: 'trip-active-segments',
+        filter: ['==', ['get', 'type'], 'ride'],
+        paint: { 'line-color': '#FFFFFF', 'line-width': 1.5, 'line-opacity': 0, 'line-blur': 0.35, 'line-dasharray': [0, 0, 2, 8] },
+      });
       // Reaplica modo foco tras (re)instalación (ej: cambio de tema).
       if (tripFocusRef.current) {
         for (const layerId of TRIP_FOCUS_HIDDEN_LAYERS) {
@@ -2284,10 +2380,20 @@ export function MapCanvas({
       });
     };
 
-    map.on('load', () => {
-      map.resize();
+    const installInitialOverlays = () => {
+      refreshCanvasAfterStableLayout();
       void installOverlays();
-    });
+    };
+    // load espera también las fuentes del basemap. En WebKit eso dejó rutas,
+    // paradas y vehículos sin instalar hasta que terminaran los tiles de CARTO.
+    // style.load ya registra las fuentes/capas y permite montar overlays antes.
+    if (map.isStyleLoaded()) {
+      installInitialOverlays();
+    } else {
+      map.once('style.load', installInitialOverlays);
+    }
+    map.on('style.load', refreshCanvasAfterStableLayout);
+    refreshCanvasAfterStableLayout();
 
     return () => {
       // disposed PRIMERO: todos los writes protegidos (setHalo, stopFlow,
@@ -2295,6 +2401,7 @@ export function MapCanvas({
       // mitad de un swap de estilo.
       disposed = true;
       if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
+      if (layoutRefreshRafId !== null) cancelAnimationFrame(layoutRefreshRafId);
       ro.disconnect();
       stopFlow();
       stopPulse();
@@ -2307,6 +2414,7 @@ export function MapCanvas({
       cameraApplyRef.current = () => {};
       userLocationApplyRef.current = () => {};
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', onPageShow);
       if (rafId !== null) cancelAnimationFrame(rafId);
       map.remove();
       mapRef.current = null;
@@ -2326,7 +2434,7 @@ export function MapCanvas({
     applyRef.current();
   }, [highlightLines]);
 
-  // Modo foco del viaje: oculta buses, rutas base y POIs; filtra paradas
+  // Modo foco del viaje: mantiene buses seleccionados y filtra paradas
   // a solo las usadas en el trip.
   useEffect(() => {
     tripFocusRef.current = tripFocus;
@@ -2351,8 +2459,9 @@ export function MapCanvas({
     cameraModeRef.current = cameraMode;
     cameraBottomPaddingRef.current = cameraBottomPadding;
     cameraModeHandlerRef.current = onCameraModeChange;
+    followTripStopRef.current = followTripStop;
     cameraApplyRef.current();
-  }, [cameraMode, cameraBottomPadding, onCameraModeChange]);
+  }, [cameraMode, cameraBottomPadding, onCameraModeChange, followTripStop]);
 
   // Fix de ubicación → actualiza puck y, en follow-user, recentra cámara.
   useEffect(() => {
@@ -2370,6 +2479,11 @@ export function MapCanvas({
     }
   }, [routePulsePaused]);
 
+  useEffect(() => {
+    tripPulseActiveRef.current = tripPulseActive;
+    if (tripPulseActive) pulseControlRef.current?.start();
+    else if (!pulseControlRef.current?.isFocused()) pulseControlRef.current?.stop();
+  }, [tripPulseActive]);
   // Tema claro/oscuro → swap de basemap + reinstalación de capas
   useEffect(() => {
     if (themeRef.current === theme) return;
@@ -2381,17 +2495,15 @@ export function MapCanvas({
     <div
       ref={containerRef}
       className={className}
-      style={{
-        width: '100%',
-        height: '100%',
-        // Capa de composición aislada: el header/dropdown no re-pinta el
-        // backdrop sobre el WebGL (sin backdrop-blur no hay readback, pero
-        // translateZ + isolation refuerzan el boundary de compositor).
-        willChange: 'transform',
-        transform: 'translateZ(0)',
-        backfaceVisibility: 'hidden',
-        isolation: 'isolate',
-      }}
+      // NO promover este contenedor a capa compuesta propia. MapLibre inyecta
+      // su <canvas> WebGL acá adentro: si el padre lleva `transform: translateZ(0)`
+      // + `will-change: transform` + `backface-visibility: hidden`, WebKit (Safari
+      // iOS y cualquier WKWebView, incluido el browser in-app de Telegram) culla
+      // la capa del canvas en el plano 3D coplanar y NO la pinta: el mapa queda
+      // en negro sin tiles, sin colectivos, sin recorrido y sin paradas, mientras
+      // el resto del DOM (header, cards, modales) se ve perfecto. Blink (Chrome
+      // desktop / Android) tolera el hack y por eso el bug es iOS-only.
+      style={{ width: '100%', height: '100%' }}
     />
   );
 }
