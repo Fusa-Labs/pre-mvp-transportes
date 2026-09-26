@@ -19,6 +19,16 @@ interface ViajeHeaderProps {
   mapPickTarget?: "origin" | "destination" | null;
   onCancelMapPick?: () => void;
   onClear?: () => void;
+  initialCollapsed?: boolean;
+  collapseWhenComplete?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** sdd/trip-arrival-alert: pulses the minimized pill after PASSED handoff. */
+  arrivalPulse?: boolean;
+  /** sdd/trip-arrival-alert Phase 7: yellow color-sync with the VIAJANDO card
+   * while riding. Same yellow token + same 1.2s rhythm as the card; pill stays
+   * on top, card stays docked — they combine BY COLOR only. Takes precedence
+   * over `arrivalPulse` when both are true. */
+  arrivalRideSync?: boolean;
 }
 
 export default function ViajeHeader({
@@ -33,6 +43,11 @@ export default function ViajeHeader({
   mapPickTarget,
   onCancelMapPick,
   onClear,
+  initialCollapsed = false,
+  collapseWhenComplete = false,
+  onCollapsedChange,
+  arrivalPulse = false,
+  arrivalRideSync = false,
 }: ViajeHeaderProps) {
   const [activeField, setActiveField] = useState<"origin" | "destination" | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -41,7 +56,17 @@ export default function ViajeHeader({
   // con el mapa WebGL de fondo (parpadeo / jank).
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { collapsed, toggle, handleProps } = useDragCollapse(false);
+  const { collapsed, setCollapsed, toggle, handleProps } = useDragCollapse(initialCollapsed);
+
+  useEffect(() => {
+    if (collapseWhenComplete && originLocation && destinationLocation) {
+      setCollapsed(true);
+    }
+  }, [collapseWhenComplete, originLocation, destinationLocation, setCollapsed]);
+
+  useEffect(() => {
+    onCollapsedChange?.(collapsed);
+  }, [collapsed, onCollapsedChange]);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -162,7 +187,9 @@ export default function ViajeHeader({
       {/* Vista compacta al contraer: origen → destino en una línea */}
       {showCompact && (
         <div
-          className="bg-canvas dark:bg-canvas border border-hairline rounded-full pl-4 pr-2 py-2 shadow-md flex items-center gap-2 select-none"
+          data-arrival-pill={arrivalPulse || arrivalRideSync ? "true" : undefined}
+          data-arrival-ride={arrivalRideSync ? "true" : undefined}
+          className={`bg-canvas dark:bg-canvas border border-hairline rounded-full pl-4 pr-2 py-2 shadow-md flex items-center gap-2 select-none${arrivalRideSync ? " pill-ride-sync" : arrivalPulse ? " pill-pulse" : ""}`}
           {...handleProps}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("button")) return;

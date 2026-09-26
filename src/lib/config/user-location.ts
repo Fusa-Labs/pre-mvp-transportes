@@ -1,14 +1,4 @@
-/**
- * Ubicación de referencia del usuario para toda la app (home + mapas + asistente).
- *
- * Hoy es una fijación SIMULADA (Parque Centenario == stop-65-05): la maqueta
- * todavía no pide permisos de geolocalización.
- *
- * TODO(geo-real): único punto de cambio para conectar navigator.geolocation
- * (getUserLocation pasaría a async con fallback a la simulada si el permiso
- * se niega). Nadie más debería duplicar estas coordenadas.
- */
-
+/** Browser geolocation helpers. They never substitute demo coordinates. */
 export interface UserLocation {
   lat: number;
   lng: number;
@@ -23,8 +13,45 @@ export const SIMULATED_USER_LOCATION: UserLocation = {
   isSimulated: true,
 };
 
-/** Etiqueta visible para UIs que distinguen el dato simulado del real. */
-export const SIMULATED_LOCATION_LABEL = 'Parque Centenario (Ubicación simulada)';
+export const SIMULATED_LOCATION_LABEL = 'Parque Centenario';
+
+export type DeviceLocationErrorCode = 'unsupported' | 'denied' | 'unavailable' | 'timeout';
+
+export class DeviceLocationError extends Error {
+  constructor(public readonly code: DeviceLocationErrorCode, message: string) {
+    super(message);
+    this.name = 'DeviceLocationError';
+  }
+}
+
+/** Must be called from a user gesture so iOS and Android can show their native prompt. */
+export function requestDeviceLocation(): Promise<UserLocation> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return Promise.reject(new DeviceLocationError('unsupported', 'Este navegador no permite usar ubicación real.'));
+  }
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => resolve({
+        lat: coords.latitude,
+        lng: coords.longitude,
+        name: 'Ubicación actual',
+        isSimulated: false,
+      }),
+      (error) => {
+        const code: DeviceLocationErrorCode =
+          error.code === error.PERMISSION_DENIED ? 'denied' :
+          error.code === error.TIMEOUT ? 'timeout' : 'unavailable';
+        const message = code === 'denied'
+          ? 'No autorizaste tu ubicación. Podés usar Parque Centenario.'
+          : code === 'timeout'
+            ? 'La ubicación tardó demasiado. Probá de nuevo o usá Parque Centenario.'
+            : 'No pudimos obtener tu ubicación. Probá de nuevo o usá Parque Centenario.';
+        reject(new DeviceLocationError(code, message));
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
+    );
+  });
+}
 
 export function getUserLocation(): UserLocation {
   return SIMULATED_USER_LOCATION;

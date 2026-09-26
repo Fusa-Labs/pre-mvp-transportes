@@ -20,6 +20,10 @@ export interface BottomNavProps {
   onToggleLineMenu?: () => void;
   onActivateTripMode?: () => void;
   isTripMode?: boolean;
+  /** Hay contenido de viaje para alternar (modo Viaje o colectivo seguido). */
+  tripToggleActive?: boolean;
+  /** Un toque en la rosa alterna la vista del viaje sin perder el estado. */
+  onToggleTripView?: () => void;
 }
 
 const DOUBLE_TAP_MS = 320;
@@ -30,6 +34,8 @@ export function BottomNav({
   onToggleLineMenu,
   onActivateTripMode,
   isTripMode = false,
+  tripToggleActive = false,
+  onToggleTripView,
 }: BottomNavProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -65,7 +71,15 @@ export function BottomNav({
     const isDouble = now - lastTapRef.current < DOUBLE_TAP_MS;
     lastTapRef.current = now;
 
-    if (!isDouble) return;
+    if (!isDouble) {
+      // En /mapas con viaje activo, un toque alterna la vista del viaje
+      // (sin perder el estado); si no, navega normal al mapa.
+      if (onMap && tripToggleActive && onToggleTripView) {
+        event.preventDefault();
+        onToggleTripView();
+      }
+      return;
+    }
 
     event.preventDefault();
     lastTapRef.current = 0;
@@ -148,7 +162,7 @@ export function BottomNav({
               roseBgClass,
               roseRingClass,
             )}
-            aria-label="Ir al mapa. Doble toque para abrir Modo Viaje"
+            aria-label={onMap && tripToggleActive ? "Mostrar u ocultar la vista del viaje. Doble toque para abrir Modo Viaje" : "Ir al mapa. Doble toque para abrir Modo Viaje"}
             aria-current={mapaActive ? 'page' : undefined}
           >
             <MetropolRose className="h-7 w-auto" />

@@ -13,6 +13,7 @@ import { AssistantAnswerCard } from '@/components/home/AssistantAnswerCard';
 import { useDragCollapse } from '@/lib/hooks/use-drag-collapse';
 import type { AssistantAnswer } from '@/lib/services/assistant-intent-service';
 import type { LocationPoint, TripOption } from '@/types/trip-planner';
+import type { EstimacionLlegada } from '@/types/transport';
 import { cn } from '@/lib/utils';
 
 interface AssistantAnswerSheetProps {
@@ -21,7 +22,11 @@ interface AssistantAnswerSheetProps {
   onSelectCandidate?: (candidate: LocationPoint) => void;
   onAskArrivalsAt?: (paradaId: string) => void;
   /** §3: abre el viaje en /mapas (origen+línea+ramal enfocados). Recibe el trip y su origen. */
-  onOpenTripOnMap?: (trip: TripOption, origin: LocationPoint) => void;
+  onOpenTripOnMap?: (trip: TripOption, origin: LocationPoint, boardingStopId?: string, arrival?: EstimacionLlegada) => void;
+  /** sdd/trip-options-upgrade 2.5 (fix verify #4108): re-pick de destino desde el
+   *  estado zero-bus; reabre el destino conservando el origen. Se reenvía a las
+   *  cards para que el CTA de AssistantAnswerCard deje de estar huérfano. */
+  onRepickDestination?: () => void;
   /** Segunda respuesta bajo la principal (resultado final del wizard: viaje + llegadas). */
   supplement?: AssistantAnswer | null;
   /** Lugar del flujo PBI-019 (avenida/POI elegido o demo). Se muestra en la barra. */
@@ -36,6 +41,7 @@ export function AssistantAnswerSheet({
   onSelectCandidate,
   onAskArrivalsAt,
   onOpenTripOnMap,
+  onRepickDestination,
   supplement,
   contextLabel,
   onChangePlace,
@@ -119,6 +125,7 @@ export function AssistantAnswerSheet({
               onSelectCandidate={onSelectCandidate}
               onAskArrivalsAt={onAskArrivalsAt}
               onOpenTripOnMap={onOpenTripOnMap}
+              onRepickDestination={onRepickDestination}
               className="border-0 shadow-none p-2 rounded-2xl bg-canvas-soft/50"
             />
             {supplement && (
@@ -127,6 +134,7 @@ export function AssistantAnswerSheet({
                 onSelectCandidate={onSelectCandidate}
                 onAskArrivalsAt={onAskArrivalsAt}
                 onOpenTripOnMap={onOpenTripOnMap}
+                onRepickDestination={onRepickDestination}
                 className="mt-2 border-0 shadow-none p-2 rounded-2xl bg-canvas-soft/50"
               />
             )}

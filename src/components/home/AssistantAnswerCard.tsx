@@ -10,7 +10,9 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, Clock, MapPin, Navigation } from 'lucide-react';
 import { LineBadge } from '@/components/ui/line-badge';
 import type { AssistantAnswer } from '@/lib/services/assistant-intent-service';
-import type { LocationPoint, TransitLeg, TripOption } from '@/types/trip-planner';
+import type { LocationPoint, TripOption } from '@/types/trip-planner';
+import type { EstimacionLlegada } from '@/types/transport';
+import { buildTripMapUrl } from '@/lib/trip-map-navigation';
 import { cn } from '@/lib/utils';
 
 interface AssistantAnswerCardProps {
@@ -20,27 +22,19 @@ interface AssistantAnswerCardProps {
   /** El usuario pide "¿cuándo llega?" en una parada concreta (refinamiento). */
   onAskArrivalsAt?: (paradaId: string) => void;
   /** §3: tocar el viaje cierra/minimiza el modal y abre /mapas con todo enfocado. */
-  onOpenTripOnMap?: (trip: TripOption, origin: LocationPoint) => void;
+  onOpenTripOnMap?: (trip: TripOption, origin: LocationPoint, boardingStopId?: string, arrival?: EstimacionLlegada) => void;
+  /** sdd/trip-options-upgrade 2.5: re-pick de destino (reusa handleSelectDestination del padre). */
+  onRepickDestination?: () => void;
   className?: string;
 }
 
-/**
- * §3 deep-link del viaje: /mapas?trip=1&origen=<stopId|nombre>&destino=<nombre>
- * [&linea=<id>&ramal=<id>] — mapas abre Modo Viaje, precarga origen/destino,
- * enfoca el recorrido y resalta línea + unidades activas.
- */
-export function tripMapUrl(trip: TripOption, origin: LocationPoint): string {
-  const ride = trip.legs.find((l) => l.type === 'ride') as TransitLeg | undefined;
-  const params = new URLSearchParams({
-    trip: '1',
-    origen: origin.stopId ?? origin.name,
-    destino: trip.destination.name,
-  });
-  if (ride) {
-    params.set('linea', ride.lineaId);
-    if (ride.ramalId) params.set('ramal', ride.ramalId);
-  }
-  return `/mapas?${params.toString()}`;
+/** One portable contract for Home and Mi Viaje navigation. */
+export function tripMapUrl(
+  trip: TripOption,
+  origin: LocationPoint,
+  options: { boardingStopId?: string; arrival?: EstimacionLlegada } = {},
+): string {
+  return buildTripMapUrl(trip, origin, { boardingStopId: options.boardingStopId ?? origin.stopId, arrival: options.arrival });
 }
 
 const FEASIBILITY_STYLE: Record<string, string> = {
@@ -58,17 +52,18 @@ export function AssistantAnswerCard({
   onSelectCandidate,
   onAskArrivalsAt,
   onOpenTripOnMap,
+  onRepickDestination,
   className,
 }: AssistantAnswerCardProps) {
   const router = useRouter();
 
   /** §3: el toque en el viaje cierra la hoja (el padre la pasa a idle) y navega. */
-  const openTrip = (trip: TripOption, origin: LocationPoint) => {
+  const openTrip = (trip: TripOption, origin: LocationPoint, boardingStopId?: string, arrival?: EstimacionLlegada) => {
     if (onOpenTripOnMap) {
-      onOpenTripOnMap(trip, origin);
+      onOpenTripOnMap(trip, origin, boardingStopId, arrival);
       return;
     }
-    router.push(tripMapUrl(trip, origin));
+    router.push(tripMapUrl(trip, origin, { boardingStopId, arrival }));
   };
 
   /** Tocar una línea de la lista de llegadas: al mapa con parada + línea enfocadas. */
@@ -234,14 +229,48 @@ export function AssistantAnswerCard({
           )}
 
           {answer.arrivals.length > 0 && (
+            <p className="text-xs font-semibold text-text-muted">Elegí el colectivo que vas a tomar</p>
+          )}
+          {/* sdd/trip-options-upgrade 2.5: zero-bus — copy + re-pick, sin botones de bondi. */}
+          {answer.arrivals.length === 0 && (
+            <div className="flex flex-col gap-2 rounded-xl border border-hairline-soft bg-canvas-soft px-3 py-2.5">
+              <p className="text-xs font-semibold text-ink">
+                Por ahora no hay colectivos en vivo en {answer.originStop.nombre}.
+              </p>
+              <p className="text-xs text-text-muted leading-snug">
+                Probá con otro destino sobre los corredores 65, 194 o la línea simulada 60.
+              </p>
+              {onRepickDestination && (
+                <button
+                  type="button"
+                  onClick={onRepickDestination}
+                  className="h-9 rounded-xl bg-ink text-canvas text-xs font-bold active:scale-[0.98] transition-transform"
+                >
+                  Elegir otro destino
+                </button>
+              )}
+            </div>
+          )}
+          {answer.arrivals.length > 0 && (
             <ul className="flex flex-col gap-1.5">
               {answer.arrivals.map((a, i) => (
                 <li key={`${a.lineaNumero}-${a.interno}-${i}`}>
                   <button
                     type="button"
-                    onClick={() => openArrivalOnMap(answer.originStop.id, a.lineaId)}
-                    title={`Ver la línea ${a.lineaNumero} en el mapa`}
-                    aria-label={`Ver la línea ${a.lineaNumero} (${a.ramal}) en el mapa, en ${answer.originStop.nombre}`}
+                    onClick={() => {
+                      if (answer.trip) {
+                        openTrip(answer.trip, {
+                          name: answer.originStop.nombre,
+                          lat: answer.originStop.lat,
+                          lng: answer.originStop.lng,
+                          stopId: answer.originStop.id,
+                        }, answer.originStop.id, a);
+                      } else {
+                        openArrivalOnMap(answer.originStop.id, a.lineaId);
+                      }
+                    }}
+                    title={answer.trip ? `Elegir el ${a.lineaNumero} que llega ${a.displayLabel ?? `${a.minutos} min`}` : `Ver la línea ${a.lineaNumero} en el mapa`}
+                    aria-label={answer.trip ? `Elegir el colectivo ${a.lineaNumero}, llega ${a.displayLabel ?? `${a.minutos} min`}` : `Ver la línea ${a.lineaNumero} (${a.ramal}) en el mapa, en ${answer.originStop.nombre}`}
                     className="w-full text-left flex items-center justify-between gap-2 bg-canvas-soft hover:bg-field border border-hairline-soft rounded-lg px-3 py-2.5 min-h-[48px] transition-colors active:scale-[0.99]"
                   >
                     <div className="flex items-center gap-2 min-w-0">

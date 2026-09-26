@@ -60,6 +60,11 @@
   --text-faint: #adadad;
   --electric-blue: #0066ff;
 
+  /* sdd/trip-arrival-alert Phase 7: shared VIAJANDO ride yellow. Card bg +
+     pill flash use the SAME token so they combine BY COLOR. Keep in sync
+     with `VIAJANDO_YELLOW` in trip-map-navigation.ts. */
+  --viajando-yellow: #FFD60A;
+
   /* Shadcn Semantic Mapping */
   --background: var(--canvas);
   --foreground: var(--ink);
@@ -157,6 +162,121 @@ html, body {
   will-change: box-shadow, transform;
 }
 
+/* trip-arrival-alert: 3-state arrival motion (sdd/trip-arrival-alert).
+   CSS-only, compositor props (opacity/transform/box-shadow) so the blink
+   never contends with the MapLibre WebGL main thread. */
+@keyframes arrival-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes transfer-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pill-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(220, 38, 38, 0);
+    transform: scale(1.02);
+  }
+}
+
+.animate-arrival-blink {
+  animation: arrival-blink 1s ease-in-out infinite;
+  will-change: opacity;
+}
+
+.animate-transfer-pop {
+  animation: transfer-pop 0.6s ease-out;
+  will-change: transform;
+}
+
+.pill-pulse {
+  animation: pill-pulse 1.6s ease-in-out infinite;
+  will-change: box-shadow, transform;
+}
+
+/* trip-arrival-alert Phase 7: VIAJANDO ride motion.
+   - transfer-rise: energy orb travels from the card UP toward the top
+     "TU VIAJE" pill (origen→destino) during the 2.5s PASSED window.
+   - ride-pulse: yellow glow on the VIAJANDO card, SAME 1.2s rhythm as the
+     pill flash so card + pill read as one synced system (color only —
+     neither element moves from its dock).
+   - pill-ride-sync: top pill flashes its normal canvas color ↔ the SAME
+     yellow token as the card. CSS-only, compositor props only. */
+@keyframes transfer-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 6px) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -88px) scale(1);
+  }
+}
+
+@keyframes ride-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 214, 10, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(255, 214, 10, 0);
+  }
+}
+
+@keyframes pill-ride-sync {
+  0%, 100% {
+    background-color: var(--canvas);
+  }
+  50% {
+    background-color: var(--viajando-yellow);
+  }
+}
+
+.transfer-orb {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 12px;
+  height: 12px;
+  margin-bottom: -2px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, #ffffff 0%, var(--viajando-yellow) 55%, rgba(255, 214, 10, 0) 75%);
+  box-shadow: 0 0 12px 3px rgba(255, 214, 10, 0.8);
+  pointer-events: none;
+  animation: transfer-rise 1.1s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+.animate-ride-pulse {
+  animation: ride-pulse 1.2s ease-in-out infinite;
+  will-change: box-shadow;
+}
+
+.pill-ride-sync {
+  animation: pill-ride-sync 1.2s ease-in-out infinite;
+  will-change: background-color;
+}
+
 /* Pulso vivo sincronizado para timeline y mapas */
 @keyframes rutaba-live-pulse {
   0%, 100% {
@@ -214,7 +334,13 @@ html, body {
   .rutaba-rose-aura,
   .rutaba-rose-btn,
   .rutaba-shine,
-  .rutaba-drive {
+  .rutaba-drive,
+  .animate-arrival-blink,
+  .animate-transfer-pop,
+  .animate-ride-pulse,
+  .transfer-orb,
+  .pill-ride-sync,
+  .pill-pulse {
     animation: none !important;
   }
 

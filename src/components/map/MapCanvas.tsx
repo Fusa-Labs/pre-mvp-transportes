@@ -158,8 +158,10 @@ export interface MapCanvasProps {
   tripSegments?: TripSegmentItem[] | null;
   /** IDs de las paradas utilizadas en el viaje activo para aislar en el mapa */
   tripUsedStopIds?: string[] | null;
-  /** Modo foco: oculta buses, rutas base, paradas y POIs; muestra solo el trip */
+  /** Modo foco: conserva la unidad elegida, y deja visibles solo el viaje y sus paradas. */
   tripFocus?: boolean;
+  /** Parada de abordaje para el modo 'follow-trip': la cámara encuadra bondi + parada juntos. */
+  followTripStop?: { lat: number; lng: number } | null;
   className?: string;
 }
 
@@ -168,8 +170,6 @@ export interface MapCanvasProps {
  * Quedan visibles: trip-seg-*, planner-*, buildings3d, user-*, basemap.
  */
 const TRIP_FOCUS_HIDDEN_LAYERS = [
-  'buses', 'buses-badge', 'buses-heading', 'buses-iso',
-  'bus-glow', 'bus-labels', 'bus-shadow', 'bus-trail',
   'route-arrows', 'route-casing', 'route-flow-head', 'route-flow-tail',
   'route-halo-a', 'route-halo-b', 'route-line',
   'route-stops', 'route-stops-label', 'stops',
@@ -324,6 +324,8 @@ export function MapCanvas({
   stopFocusNonce = 0,
   selectedKey = null,
   cameraMode = 'overview',
+  // sdd/trip-options-upgrade 3.2: padding dinámico (160 colapsado / 514 expandido).
+  // Sin cambio de fitBounds — solo el aire inferior que pide el sheet.
   cameraBottomPadding = 116,
   onCameraModeChange,
   center = [-58.3816, -34.6037],
@@ -338,6 +340,7 @@ export function MapCanvas({
   tripSegments = null,
   tripUsedStopIds = null,
   tripFocus = false,
+  followTripStop = null,
   className,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -351,6 +354,7 @@ export function MapCanvas({
   const tripFocusRef = useRef(tripFocus);
   const selectedRef = useRef(selectedKey);
   const selectedStopIdRef = useRef<string | null>(selectedStopId);
+  const followTripStopRef = useRef<{ lat: number; lng: number } | null>(followTripStop);
   const cameraModeRef = useRef(cameraMode);
   const cameraBottomPaddingRef = useRef(cameraBottomPadding);
   const cameraModeHandlerRef = useRef(onCameraModeChange);
@@ -763,7 +767,9 @@ export function MapCanvas({
       // padding respeta el sheet.
       const selKey = selectedRef.current;
       const mode = cameraModeRef.current;
-      if (selKey && (mode === 'follow-vehicle' || mode === 'navigation-vehicle')) {
+      if (selKey && mode === 'follow-trip') {
+        applyFollowTripFrame(TICK_MS + 120);
+      } else if (selKey && (mode === 'follow-vehicle' || mode === 'navigation-vehicle')) {
         const live = motionMap.get(selKey)?.frame(Date.now());
         if (live) {
           const frame = vehicleCameraFrame(live, mode);
@@ -785,12 +791,16 @@ export function MapCanvas({
     ingestRef.current = ingestPositions;
     refreshRef.current = refreshVehicles;
     cameraApplyRef.current = () => {
-      const selKey = selectedRef.current;
       const mode = cameraModeRef.current;
       if (mode === 'follow-user') {
         followUserFrame();
         return;
       }
+      if (mode === 'follow-trip') {
+        applyFollowTripFrame(450);
+        return;
+      }
+      const selKey = selectedRef.current;
       if (!selKey || (mode !== 'follow-vehicle' && mode !== 'navigation-vehicle')) return;
       const live = currentMap.get(selKey) ?? motionMap.get(selKey)?.frame(Date.now());
       if (!live) return;
@@ -829,6 +839,47 @@ export function MapCanvas({
         bearing: 0,
         duration: 650,
         padding: { bottom: cameraBottomPaddingRef.current },
+      });
+    };
+    // Encuadre dual bondi + parada (modo 'follow-trip'): consume el MISMO frame
+    // renderizado que el símbolo. Sin parada disponible, degrada a follow-vehicle.
+    const applyFollowTripFrame = (duration: number) => {
+      const selKey = selectedRef.current;
+      if (!selKey) return;
+      const live = currentMap.get(selKey) ?? motionMap.get(selKey)?.frame(Date.now());
+      if (!live) return;
+      const stop = followTripStopRef.current;
+      if (stop) {
+        map.fitBounds(
+          [
+            [Math.min(live.lng, stop.lng), Math.min(live.lat, stop.lat)],
+            [Math.max(live.lng, stop.lng), Math.max(live.lat, stop.lat)],
+          ],
+          {
+            padding: {
+              top: 200,
+              bottom: cameraBottomPaddingRef.current + 80,
+              left: 48,
+              right: 48,
+            },
+            maxZoom: 16.2,
+            pitch: 0,
+            bearing: 0,
+            duration,
+            easing: (t) => t,
+          },
+        );
+        return;
+      }
+      const frame = vehicleCameraFrame(live, 'follow-vehicle');
+      map.easeTo({
+        center: frame.center,
+        zoom: frame.zoom,
+        pitch: frame.pitch,
+        bearing: frame.bearing,
+        duration,
+        easing: (t) => t,
+        padding: { bottom: cameraBottomPaddingRef.current + 48 },
       });
     };
     userLocationApplyRef.current = () => {
@@ -990,6 +1041,7 @@ export function MapCanvas({
     const stopFollow = () => {
       if (
         cameraModeRef.current === 'follow-vehicle' ||
+        cameraModeRef.current === 'follow-trip' ||
         cameraModeRef.current === 'navigation-vehicle' ||
         cameraModeRef.current === 'follow-user'
       ) {
@@ -2326,7 +2378,7 @@ export function MapCanvas({
     applyRef.current();
   }, [highlightLines]);
 
-  // Modo foco del viaje: oculta buses, rutas base y POIs; filtra paradas
+  // Modo foco del viaje: mantiene buses seleccionados y filtra paradas
   // a solo las usadas en el trip.
   useEffect(() => {
     tripFocusRef.current = tripFocus;
@@ -2351,8 +2403,9 @@ export function MapCanvas({
     cameraModeRef.current = cameraMode;
     cameraBottomPaddingRef.current = cameraBottomPadding;
     cameraModeHandlerRef.current = onCameraModeChange;
+    followTripStopRef.current = followTripStop;
     cameraApplyRef.current();
-  }, [cameraMode, cameraBottomPadding, onCameraModeChange]);
+  }, [cameraMode, cameraBottomPadding, onCameraModeChange, followTripStop]);
 
   // Fix de ubicación → actualiza puck y, en follow-user, recentra cámara.
   useEffect(() => {
