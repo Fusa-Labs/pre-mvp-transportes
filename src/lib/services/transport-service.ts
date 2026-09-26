@@ -65,6 +65,118 @@ interface RamalCandidate extends VehiclePosition {
   lineStops: { id: string; alongM: number }[];
 }
 
+// ─── W2′: frecuencia simulada ──────────────────────────────────────────────
+// La flota curada es REAL y está CONGELADA. Cuando es genuinamente rala (p. ej.
+// la 194: 30 unidades para 93 km), la lista de abordaje queda por debajo del tope
+// de 3 filas por línea. Se COMPLETA con ETAs SINTÉTICOS derivados ÚNICAMENTE de la
+// `frecuenciaPicoMin` curada: la próxima salida teórica es una frecuencia entera
+// después. No se inventa densidad; no se lee reloj de pared (determinista).
+// Ver sdd/eta-boarding-fidelity (W2′).
+
+/**
+ * Generador ÚNICO de arribos sintéticos. Lo usan tanto la rama viva (relleno por
+ * línea) como el fallback sin GPS (§2), para evitar dos generadores divergentes.
+ *
+ * @param anchorMin ETA de referencia de la línea en la parada (0 si hay unidad "en parada").
+ * @param count     Cuántas filas sintéticas agregar (tope: 3 − reales).
+ * @param blocked   Minutos ya presentes en la parada (colisión cross-línea); se muta.
+ * @param ctx       Ramal (texto de dirección) y color ya resueltos por la línea.
+ */
+function buildSimulatedArrivals(
+  linea: Linea,
+  anchorMin: number,
+  count: number,
+  blocked: Set<number>,
+  ctx: { ramal: string; colorHex: string },
+): EstimacionLlegada[] {
+  const step = linea.frecuenciaPicoMin > 0 ? linea.frecuenciaPicoMin : 5;
+  const rows: EstimacionLlegada[] = [];
+  for (let k = 0; k < count; k++) {
+    let v = anchorMin + step * (k + 1);
+    // Colisión a nivel parada: correr una frecuencia hasta obtener un ETA único.
+    while (blocked.has(v)) v += step;
+    blocked.add(v);
+    rows.push({
+      lineaId: linea.id,
+      lineaNumero: linea.numero,
+      colorHex: ctx.colorHex,
+      ramal: ctx.ramal,
+      minutos: v,
+      distanciaMetros: v * 310,
+      interno: `SIM-${linea.id}-${k + 1}`,
+      ocupacion: "baja",
+      displayStatus: "minutos",
+      displayLabel: `${v} min`,
+      simulated: true,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Post-proceso de la rama viva: (a) colapsa filas "agrupadas en la parada"
+ * (stop-level, cross-línea) conservando la PRIMERA en orden de emisión
+ * (`parada.lineasIds`) y (b) completa hasta el tope de 3 filas por línea con el
+ * generador sintético. Sólo completa líneas con 1..2 filas reales: una línea sin
+ * unidades (parada vacía) nunca se fabrica.
+ */
+function completeBoardingOptions(rows: EstimacionLlegada[], parada: Parada): EstimacionLlegada[] {
+  const byLine = new Map<string, EstimacionLlegada[]>();
+  for (const r of rows) {
+    const bucket = byLine.get(r.lineaId);
+    if (bucket) bucket.push(r);
+    else byLine.set(r.lineaId, [r]);
+  }
+
+  // Orden de emisión = `parada.lineasIds` (el resto, si lo hubiera, al final).
+  const order: string[] = parada.lineasIds.filter((id) => byLine.has(id));
+  for (const id of byLine.keys()) {
+    if (!order.includes(id)) order.push(id);
+  }
+
+  // (a) Colapso stop-level: la primera fila "en parada" se conserva; el resto cae.
+  const collapsed = new Set<EstimacionLlegada>();
+  let keptAtStop = false;
+  for (const lineId of order) {
+    for (const r of byLine.get(lineId)!) {
+      if (r.displayStatus !== "en-parada") continue;
+      if (!keptAtStop) keptAtStop = true;
+      else collapsed.add(r);
+    }
+  }
+
+  // Minutos ya presentes en la parada (todas las líneas) → anti-colisión.
+  const blocked = new Set<number>();
+  for (const r of rows) blocked.add(r.minutos);
+
+  const out: EstimacionLlegada[] = [];
+  for (const lineId of order) {
+    const lineRows = byLine.get(lineId)!;
+    const linea = LINEAS_MOCK.find((l) => l.id === lineId);
+    const kept = lineRows.filter((r) => !collapsed.has(r));
+    if (!linea || kept.length === 0) {
+      // Línea desconocida o sin unidades: jamás fabricar arribos.
+      out.push(...kept);
+      continue;
+    }
+
+    out.push(...kept);
+    const missing = 3 - kept.length;
+    if (missing > 0) {
+      // Anchor = fila real más cercana de la línea en la parada (0 si está en parada).
+      const anchorMin = Math.min(...lineRows.map((r) => r.minutos));
+      out.push(
+        ...buildSimulatedArrivals(linea, anchorMin, missing, blocked, {
+          ramal: kept[0].ramal,
+          colorHex: kept[0].colorHex,
+        }),
+      );
+    }
+  }
+
+  return out;
+}
+
 export class TransportService implements IDataService {
   public getLineas(): Linea[] {
     return LINEAS_MOCK;
@@ -232,29 +344,20 @@ export class TransportService implements IDataService {
       });
 
       if (liveLlegadas.length > 0) {
-        return liveLlegadas.sort((a, b) => a.minutos - b.minutos);
+        // W2′: colapsar agrupadas + completar líneas ralas (tope 3), luego ordenar.
+        return completeBoardingOptions(liveLlegadas, parada).sort(
+          (a, b) => a.minutos - b.minutos,
+        );
       }
     }
 
-    // 2. Fallback determinístico (cuando no hay feed GPS activo)
-    const deterministicHash = (str: string): number => {
-      let h = 0;
-      for (let i = 0; i < str.length; i++) {
-        h = (h << 5) - h + str.charCodeAt(i);
-        h |= 0;
-      }
-      return Math.abs(h);
-    };
-
+    // 2. Fallback determinístico (cuando no hay feed GPS activo).
+    // Delega en el MISMO generador sintético para no tener dos fuentes divergentes.
     const llegadas: EstimacionLlegada[] = [];
+    const blockedFb = new Set<number>();
     parada.lineasIds.forEach((lId) => {
       const linea = LINEAS_MOCK.find((l) => l.id === lId);
       if (!linea) return;
-
-      const seed = deterministicHash(paradaId + lId);
-      const baseMin = (seed % 4) + 1;
-      const interno1 = "25";
-      const interno2 = "48";
 
       // P2-8 (fallback sin GPS): derivar del dataset.
       const lineaDataFb = DATASET.lineas.find((l) => l.id === linea.id);
@@ -267,33 +370,12 @@ export class TransportService implements IDataService {
         ? `${recFb.origen} → ${recFb.destino}`
         : (isVuelta ? 'Barrancas → Constitución' : 'Constitución → Barrancas');
 
-      llegadas.push({
-        lineaId: linea.id,
-        lineaNumero: linea.numero,
-        colorHex: directionColor,
-        ramal: directionRamal,
-        minutos: baseMin,
-        distanciaMetros: baseMin * 310,
-        interno: interno1,
-        ocupacion: baseMin <= 2 ? "alta" : "media",
-        displayStatus: baseMin <= 1 ? "en-parada" : baseMin <= 2 ? "arribando" : "minutos",
-        displayLabel: baseMin <= 1 ? "En parada" : baseMin <= 2 ? "Arribando" : `${baseMin} min`,
-      });
-
-      if (linea.frecuenciaPicoMin > 0) {
-        llegadas.push({
-          lineaId: linea.id,
-          lineaNumero: linea.numero,
-          colorHex: directionColor,
+      llegadas.push(
+        ...buildSimulatedArrivals(linea, 0, 2, blockedFb, {
           ramal: directionRamal,
-          minutos: baseMin + linea.frecuenciaPicoMin,
-          distanciaMetros: (baseMin + linea.frecuenciaPicoMin) * 310,
-          interno: interno2,
-          ocupacion: "baja",
-          displayStatus: "minutos",
-          displayLabel: `${baseMin + linea.frecuenciaPicoMin} min`,
-        });
-      }
+          colorHex: directionColor,
+        }),
+      );
     });
 
     return llegadas.sort((a, b) => a.minutos - b.minutos);

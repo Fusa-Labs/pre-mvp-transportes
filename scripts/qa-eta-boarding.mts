@@ -92,6 +92,17 @@ const SEEDS: SeedRoute[] = [
   },
 ];
 
+// ─── Top-3 congelado que el mapa mostraría por semilla (diseño W2′) ──────────
+// `buildBoardingOptions` no se toca: deriva del orden same-nearest / same-late /
+// other-line sobre las llegadas de la parada de subida.
+
+const SEED_EXPECT: Record<string, number[]> = {
+  "seed-65-centenario-barrancas": [3, 5, 14],
+  "seed-65-constitucion-barrancas": [0, 3, 12],
+  "seed-194-once-escobar": [0, 5, 23],
+  "seed-194-once-zarate": [0, 5, 23],
+};
+
 // ─── Formato y lectura de llegadas ──────────────────────────────────────────
 
 function ramalTag(lineId: string, interno: string): string {
@@ -122,16 +133,12 @@ function fallbackArrivals(stopId: string): EstimacionLlegada[] {
 }
 
 /**
- * El fallback sin GPS emite internos fijos `25`/`48` y distancias múltiplos
- * exactos de 310 m. Si TODAS las filas cumplen eso, sospechamos del fallback.
+ * El fallback sin GPS (§2) emite SÓLO filas sintéticas (`simulated:true`). La
+ * rama viva, en cambio, siempre parte de al menos una unidad real por parada
+ * servida. Si TODAS las filas son sintéticas, sospechamos del fallback.
  */
 function looksLikeFallback(rows: EstimacionLlegada[]): boolean {
-  return (
-    rows.length > 0 &&
-    rows.every(
-      (a) => (a.interno === "25" || a.interno === "48") && a.distanciaMetros === a.minutos * 310,
-    )
-  );
+  return rows.length > 0 && rows.every((a) => a.simulated === true);
 }
 
 /** Confirma que la parada se resolvió por la rama viva, no por el fallback. */
@@ -158,15 +165,11 @@ function seedBoardingRows(seed: SeedRoute): BoardingOptionRow[] {
 }
 
 // ─── Baseline congelado (t = 0) ─────────────────────────────────────────────
-// Valores MEDIDOS en HEAD (c1c9be6) con la rama viva sobre la flota simulada
-// inicializada por `snapshotFleet()`. La 65 (`stop-65-05`, `stop-65-01`,
-// `stop-65-09`) DEBE quedar byte-idéntica tras W1/W2′; los 194 (phantom /
-// sparse) son el síntoma a corregir y se "flipean" al objetivo.
-//
-// W1 (proyección por ramal): los 194 quedaron RE-CONGELADOS con lo que emite la
-// rama viva tras W1 — `stop-194-once` sin el fantasma de Zárate, `stop-194-zarate`
-// con unidades realmente en el terminal y `stop-194-escobar` con sus ramales
-// propios. La 65/60 NO cambió. W2′ completará los 194 sparse a >= 3 escalonado.
+// W1 (proyección por ramal, `203a6f6`) fijó los 194 sin fantasma. W2′ (frecuencia
+// simulada) RE-CONGELA las paradas donde el colapso stop-level + el relleno
+// sintético cambian la lista. La 65 (`stop-65-05`) DEBE quedar byte-idéntica.
+// Valores del diseño W2′ (DATA-FROZEN). Si el motor rinde otro número, el
+// harness falla y NO se fuerzan los valores: se reporta la discrepancia.
 //
 // NOTA DE FIDELIDAD: la línea base real difiere de los valores estimados en el
 // brief SDD. Motivos verificados:
@@ -187,37 +190,37 @@ const FROZEN_BASELINE: FrozenStop[] = [
     stopId: "stop-65-05",
     minutos: [3, 5, 8, 14, 35, 58],
     labels: ["3 min", "5 min", "8 min", "14 min", "35 min", "58 min"],
-    note: "congelado · 3×line-65 + 3×line-60; W1/W2′ no deben cambiarlo",
+    note: "HARD FREEZE · 3×line-65 + 3×line-60; W2′ no lo toca (ninguna línea es rala)",
   },
   {
     stopId: "stop-65-01",
-    minutos: [0, 0, 3, 6, 22, 44],
-    labels: ["En parada", "En parada", "3 min", "6 min", "22 min", "44 min"],
-    note: "congelado · W1/W2′ no deben cambiarlo",
+    minutos: [0, 3, 6, 12, 22, 44],
+    labels: ["En parada", "3 min", "6 min", "12 min", "22 min", "44 min"],
+    note: "colapso stop-level: 701 (line-60 en parada) → SIM 6, colisiona con 65 real 6 → bump 12",
   },
   {
     stopId: "stop-65-09",
-    minutos: [0, 0, 3, 6, 22, 44],
-    labels: ["En parada", "En parada", "3 min", "6 min", "22 min", "44 min"],
-    note: "congelado · W1/W2′ no deben cambiarlo",
-  },
-  {
-    stopId: "stop-194-escobar-estacion",
-    minutos: [0, 1, 19],
-    labels: ["En parada", "En parada", "19 min"],
-    note: "W1: proyección por ramal; 201[h]/502[f] reales en el terminal Escobar y 603[i] ya no aparece (no sirve Escobar) · W2′ completará >= 3 escalonado",
+    minutos: [0, 3, 6, 12, 22, 44],
+    labels: ["En parada", "3 min", "6 min", "12 min", "22 min", "44 min"],
+    note: "idéntica a stop-65-01 · colapso 701 → SIM 12 por bump anti-colisión",
   },
   {
     stopId: "stop-194-once",
-    minutos: [0, 0, 23],
-    labels: ["En parada", "En parada", "23 min"],
-    note: "W1: fantasma 471[g] (físicamente en Zárate) ELIMINADO; 102[a]/302[b] reales en Once · W2′ completará >= 3 escalonado",
+    minutos: [0, 5, 23],
+    labels: ["En parada", "5 min", "23 min"],
+    note: "302[b] bunched → SIM 5 (frecuencia 5) · 102[a] real conservada",
+  },
+  {
+    stopId: "stop-194-escobar-estacion",
+    minutos: [0, 5, 19],
+    labels: ["En parada", "5 min", "19 min"],
+    note: "502[f] bunched → SIM 5 (frecuencia 5) · 201[h] real conservada",
   },
   {
     stopId: "stop-194-zarate-transferencia",
-    minutos: [0, 1, 1],
-    labels: ["En parada", "En parada", "En parada"],
-    note: "W1: ahora 601[i]/471[g]/401[d] REALMENTE en el terminal Zárate (antes 102[a]/302[b], que estaban en Once) · W2′ completará >= 3 escalonado",
+    minutos: [0, 5, 10],
+    labels: ["En parada", "5 min", "10 min"],
+    note: "601[i] conservada; 471[g]→SIM 5 y 401[d]→SIM 10 (frecuencia 5)",
   },
 ];
 
@@ -282,6 +285,40 @@ if (EXPECT) {
           `\n     obtenido minutos=${JSON.stringify(minutos)} labels=${JSON.stringify(labels)}`,
       );
     }
+  }
+
+  // Invariante stop-level: a lo sumo UNA fila "En parada" por parada.
+  for (const frozen of FROZEN_BASELINE) {
+    const atStop = liveArrivals(frozen.stopId).filter(
+      (a) => a.displayStatus === "en-parada",
+    ).length;
+    if (atStop <= 1) {
+      console.log(`✓ ${frozen.stopId} · ≤1 fila "En parada" (${atStop})`);
+    } else {
+      fail(`${frozen.stopId}: ${atStop} filas "En parada" (se esperaba ≤1 tras el colapso)`);
+    }
+  }
+
+  // Top-3 de las 4 semillas Historial (mismo camino que `mapas/page.tsx`).
+  for (const seed of SEEDS) {
+    const minutos = seedBoardingRows(seed).map((r) => r.etaMin);
+    const expected = SEED_EXPECT[seed.id];
+    if (JSON.stringify(minutos) === JSON.stringify(expected)) {
+      console.log(`✓ ${seed.id} top-3 = ${minutos.join(" / ")}`);
+    } else {
+      fail(
+        `${seed.id} top-3\n     esperado=${JSON.stringify(expected)}\n     obtenido=${JSON.stringify(minutos)}`,
+      );
+    }
+  }
+
+  // Determinismo: dos lecturas consecutivas → byte-idénticas (sin reloj de pared).
+  const detA = REFERENCE_STOPS.map((s) => JSON.stringify(liveArrivals(s))).join("|");
+  const detB = REFERENCE_STOPS.map((s) => JSON.stringify(liveArrivals(s))).join("|");
+  if (detA === detB) {
+    console.log("✓ determinismo ×2 (salida byte-idéntica)");
+  } else {
+    fail("determinismo: dos corridas consecutivas difieren");
   }
   console.log("");
 }

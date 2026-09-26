@@ -282,11 +282,16 @@ export default function TransportesAppPage() {
     // cuando hay una selección explícita.
     if (boardingUnitKey) {
       const tapped = arrivals.find(
-        (arrival) => boardingUnitKeyOf(arrival.lineaId, arrival.interno) === boardingUnitKey,
+        (arrival) =>
+          // W2′: las filas sintéticas (SIM-*) no representan una unidad física:
+          // nunca deben manejar el hero ETA, la alerta ni la cámara.
+          !arrival.simulated &&
+          boardingUnitKeyOf(arrival.lineaId, arrival.interno) === boardingUnitKey,
       );
       if (tapped) return tapped;
     }
     return arrivals.find((arrival) =>
+      !arrival.simulated &&
       arrival.lineaId === resolvedTrip.lineId &&
       (!selectedVehiculo || arrival.interno === selectedVehiculo.unitId),
     ) ?? null;
