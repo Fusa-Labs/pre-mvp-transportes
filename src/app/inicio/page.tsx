@@ -48,6 +48,22 @@ import type { LocationPoint } from '@/types/trip-planner';
 const ACTIVE_ALERTS = MOCK_ALERTS.filter((a) => a.status !== 'resolved');
 const ALL_LINE_IDS = MOCK_LINES.map((l) => l.id);
 
+/**
+ * Aviso de alerta para un recorrido: si su línea tiene una alerta activa,
+ * la tarjeta muestra un badge titilando ("RETRASO"/"DESVÍO"/"CORTE").
+ * Solo Home: el mapa todavía NO refleja la demora (ver backlog en el .md).
+ */
+const ALERT_BADGE_LABEL: Record<string, string> = {
+  delay: 'RETRASO',
+  suspension: 'CORTE',
+  route_change: 'DESVÍO',
+};
+
+function activeAlertLabelForLine(lineId: string): string | null {
+  const alert = ACTIVE_ALERTS.find((a) => a.lineId === lineId);
+  return alert ? (ALERT_BADGE_LABEL[alert.type] ?? 'ALERTA') : null;
+}
+
 function hashOf(s: string): number {
   return [...s].reduce((a, c) => a + c.charCodeAt(0), 0);
 }
@@ -515,40 +531,50 @@ export default function HomePage() {
           </div>
 
           <div className="flex flex-col gap-3">
-            {seededRoutes.map(({ seed, origin, destination, line, arrival }) => (
-              <button
-                key={seed.id}
-                type="button"
-                onClick={() => startSeededTrip(seed)}
-                aria-label={`Iniciar viaje desde ${origin.name} hacia ${destination.name} en la línea ${line.shortName}`}
-                className="w-full text-left bg-canvas rounded-2xl border border-hairline shadow-sm p-4 flex items-center gap-3 hover:bg-canvas-soft active:scale-[0.99] transition-all"
-              >
-                <LineBadge shortName={line.shortName} color={line.color} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-semibold text-text-muted truncate">
-                    {origin.name}
-                  </p>
-                  <p className="text-sm font-bold text-ink truncate">
-                    → {destination.name}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  {arrival ? (
-                    <>
-                      <p className="text-xl font-extrabold text-ink leading-none">
-                        {arrival.displayLabel ??
-                          (arrival.minutos === 0 ? 'Llega' : `${arrival.minutos} min`)}
-                      </p>
-                      <span className="text-[10px] font-semibold text-text-muted">
-                        en vivo
+            {seededRoutes.map(({ seed, origin, destination, line, arrival }) => {
+              const alertLabel = activeAlertLabelForLine(seed.lineId);
+              return (
+                <button
+                  key={seed.id}
+                  type="button"
+                  onClick={() => startSeededTrip(seed)}
+                  aria-label={`Iniciar viaje desde ${origin.name} hacia ${destination.name} en la línea ${line.shortName}${alertLabel ? `. Alerta: ${alertLabel}` : ''}`}
+                  className="w-full text-left bg-canvas rounded-2xl border border-hairline shadow-sm p-4 flex items-center gap-3 hover:bg-canvas-soft active:scale-[0.99] transition-all"
+                >
+                  <LineBadge shortName={line.shortName} color={line.color} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold text-text-muted truncate">
+                      {origin.name}
+                    </p>
+                    <p className="text-sm font-bold text-ink truncate">
+                      → {destination.name}
+                    </p>
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1">
+                    {alertLabel && (
+                      <span className="inline-flex items-center h-5 px-2 rounded-full bg-[#d97706]/10 text-[#d97706] text-[10px] font-bold tracking-wider animate-pulse">
+                        {alertLabel}
                       </span>
-                    </>
-                  ) : (
-                    <p className="text-xs font-semibold text-text-muted">sin datos</p>
-                  )}
-                </div>
-              </button>
-            ))}
+                    )}
+                    <div className="text-right">
+                      {arrival ? (
+                        <>
+                          <p className="text-xl font-extrabold text-ink leading-none">
+                            {arrival.displayLabel ??
+                              (arrival.minutos === 0 ? 'Llega' : `${arrival.minutos} min`)}
+                          </p>
+                          <span className="text-[10px] font-semibold text-text-muted">
+                            en vivo
+                          </span>
+                        </>
+                      ) : (
+                        <p className="text-xs font-semibold text-text-muted">sin datos</p>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </section>
 
