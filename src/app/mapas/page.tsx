@@ -390,10 +390,9 @@ export default function TransportesAppPage() {
 
   const arrivalPhase: ArrivalPhase = useMemo(() => {
     if (onboard) {
-      // Transfer window first (white card pops + orb rises toward the pill),
-      // then VIAJANDO_GREEN (boarding confirmed, brief), then VIAJANDO_YELLOW
-      // (riding, synced with the pill by color). Pure via viajandoSubPhase so
-      // the node harness can assert the green→yellow timeline. `nowMs`
+      // Transfer window first, then VIAJANDO_GREEN (boarding confirmed, brief),
+      // then VIAJANDO_YELLOW (riding). Pure via viajandoSubPhase so the node
+      // harness can assert the green→yellow timeline. `nowMs`
       // refreshes every GPS tick (1 Hz), so transitions need no extra timer
       // and render stays pure. The mock feed keeps ticking while onboard, so
       // the bus visibly MOVES post-stop with the user puck glued (see glue
@@ -1176,9 +1175,6 @@ export default function TransportesAppPage() {
         initialCollapsed={Boolean(resolvedTrip)}
         collapseWhenComplete={Boolean(resolvedTrip)}
         onCollapsedChange={setIsTripHeaderCollapsed}
-        arrivalPulse={arrivalPhase === 'PASSED' || arrivalPhase === 'VIAJANDO_GREEN'}
-        arrivalRideSync={arrivalPhase === 'VIAJANDO_YELLOW'}
-        arrivalHandoff={arrivalPhase === 'PASSED'}
       />
             ) : (
               <div className="w-full flex flex-col items-center gap-2">
@@ -1331,7 +1327,7 @@ export default function TransportesAppPage() {
             />
           </div>
 
-          {isTripViewActive && isTripHeaderCollapsed && resolvedTrip && selectedVehiculo && (expectedArrival || onboard) && cardLineaNumero && cardUnitId && (
+          {isTripViewActive && isTripHeaderCollapsed && resolvedTrip && selectedVehiculo && (expectedArrival || onboard || arrivalPhase !== 'NORMAL') && cardLineaNumero && cardUnitId && (
             <ArrivalStatusCard
               phase={arrivalPhase}
               minutes={arrivalMinutes}
