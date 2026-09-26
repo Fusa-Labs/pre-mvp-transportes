@@ -96,6 +96,75 @@ export interface PlannerMapPulse {
   color?: string;
 }
 
+/** Sombreado estático de un recorrido de viaje, cortado en una parada fija. */
+export interface TripRouteShade {
+  lineId: string;
+  ramalId: string;
+  recorridoId: string;
+  color: string;
+  referenceStop: { lat: number; lng: number };
+}
+
+function sameCoordinate(a: [number, number], b: [number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
+}
+
+function darkenHex(hex: string, factor = 0.58): string {
+  const normalized = hex.replace('#', '');
+  const expanded = normalized.length === 3
+    ? normalized.split('').map((part) => `${part}${part}`).join('')
+    : normalized;
+  if (!/^[0-9a-f]{6}$/i.test(expanded)) return hex;
+  const channel = (offset: number) => Math.round(parseInt(expanded.slice(offset, offset + 2), 16) * factor)
+    .toString(16)
+    .padStart(2, '0');
+  return `#${channel(0)}${channel(2)}${channel(4)}`;
+}
+
+/**
+ * Parte una polilínea en el punto de proyección más cercano a una parada.
+ * La parada es una referencia fija del recorrido: esta función nunca recibe
+ * ni consulta la posición viva del colectivo.
+ */
+function splitRouteAtStop(
+  coordinates: [number, number][],
+  stop: { lat: number; lng: number },
+): { behind: [number, number][]; ahead: [number, number][] } | null {
+  if (coordinates.length < 2) return null;
+
+  const point: [number, number] = [stop.lng, stop.lat];
+  let bestDistanceSquared = Infinity;
+  let bestSegmentIndex = 0;
+  let bestProjection: [number, number] = coordinates[0]!;
+
+  for (let index = 0; index < coordinates.length - 1; index += 1) {
+    const start = coordinates[index]!;
+    const end = coordinates[index + 1]!;
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+    const lengthSquared = dx * dx + dy * dy;
+    const t = lengthSquared === 0
+      ? 0
+      : Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared));
+    const projection: [number, number] = [start[0] + dx * t, start[1] + dy * t];
+    const distanceSquared = (point[0] - projection[0]) ** 2 + (point[1] - projection[1]) ** 2;
+    if (distanceSquared < bestDistanceSquared) {
+      bestDistanceSquared = distanceSquared;
+      bestSegmentIndex = index;
+      bestProjection = projection;
+    }
+  }
+
+  const behind = coordinates.slice(0, bestSegmentIndex + 1);
+  if (!sameCoordinate(behind[behind.length - 1]!, bestProjection)) behind.push(bestProjection);
+
+  const ahead = sameCoordinate(coordinates[bestSegmentIndex + 1]!, bestProjection)
+    ? coordinates.slice(bestSegmentIndex + 1)
+    : [bestProjection, ...coordinates.slice(bestSegmentIndex + 1)];
+
+  return behind.length >= 2 && ahead.length >= 2 ? { behind, ahead } : null;
+}
+
 function normalizePoi(p: RawPoi): UrbanFeature {
   // v1 usaba type 'church' → v2 'place_of_worship'
   const type = p.type === 'church' ? 'place_of_worship' : p.type;
@@ -166,6 +235,8 @@ export interface MapCanvasProps {
   plannerPulse?: PlannerMapPulse | null;
   /** Tramos geométricos recortados exactos del viaje seleccionado en modo Viaje */
   tripSegments?: TripSegmentItem[] | null;
+  /** Recorrido completo cortado por una parada fija para el sombreado de viaje. */
+  tripRouteShade?: TripRouteShade | null;
   /** IDs de las paradas utilizadas en el viaje activo para aislar en el mapa */
   tripUsedStopIds?: string[] | null;
   /** Modo foco: conserva la unidad elegida, y deja visibles solo el viaje y sus paradas. */
@@ -372,6 +443,7 @@ export function MapCanvas({
   plannerPoints = null,
   plannerPulse = null,
   tripSegments = null,
+  tripRouteShade = null,
   tripUsedStopIds = null,
   tripFocus = false,
   followTripStop = null,
@@ -411,6 +483,7 @@ export function MapCanvas({
   const plannerPointsRef = useRef<PlannerMapPoints | null>(plannerPoints);
   const plannerPulseRef = useRef<PlannerMapPulse | null>(plannerPulse);
   const tripSegmentsRef = useRef<TripSegmentItem[] | null>(tripSegments);
+  const tripRouteShadeRef = useRef<TripRouteShade | null>(tripRouteShade);
   const tripUsedStopIdsRef = useRef<string[] | null>(tripUsedStopIds);
   const plannerApplyRef = useRef<() => void>(() => {});
   const pulseControlRef = useRef<{ start: () => void; stop: () => void; isFocused: () => boolean } | null>(
@@ -503,10 +576,11 @@ export function MapCanvas({
     plannerPointsRef.current = plannerPoints;
     plannerPulseRef.current = plannerPulse;
     tripSegmentsRef.current = tripSegments;
+    tripRouteShadeRef.current = tripRouteShade;
     tripUsedStopIdsRef.current = tripUsedStopIds;
     plannerApplyRef.current();
     applyRef.current();
-  }, [plannerPoints, plannerPulse, tripSegments, tripUsedStopIds]);
+  }, [plannerPoints, plannerPulse, tripSegments, tripRouteShade, tripUsedStopIds]);
 
   // Fase 3: encuadre del viaje planificado — event-driven por nonce,
   // programa el fitBounds UNA vez. rAF: si el nonce cambia en el mismo
@@ -1063,6 +1137,33 @@ export function MapCanvas({
           };
         };
 
+        const tripRouteShadeData = () => {
+          const shade = tripRouteShadeRef.current;
+          if (!shade) return { type: 'FeatureCollection' as const, features: [] };
+
+          const line = DATASET.lineas.find((item) => item.id === shade.lineId);
+          const ramal = line?.ramales.find((item) => item.id === shade.ramalId);
+          const route = ramal?.recorridos.find((item) => item.id === shade.recorridoId);
+          const split = route ? splitRouteAtStop(route.coordenadas, shade.referenceStop) : null;
+          if (!split) return { type: 'FeatureCollection' as const, features: [] };
+
+          return {
+            type: 'FeatureCollection' as const,
+            features: [
+              {
+                type: 'Feature' as const,
+                geometry: { type: 'LineString' as const, coordinates: split.behind },
+                properties: { tone: 'behind', color: darkenHex(shade.color) },
+              },
+              {
+                type: 'Feature' as const,
+                geometry: { type: 'LineString' as const, coordinates: split.ahead },
+                properties: { tone: 'ahead', color: shade.color },
+              },
+            ],
+          };
+        };
+
         const tripUsedStopsData = () => {
           const ids = tripUsedStopIdsRef.current;
           if (!ids || ids.length === 0) {
@@ -1093,6 +1194,8 @@ export function MapCanvas({
           pointsSrc?.setData(plannerPointsData());
           const pulseSrc = map.getSource('planner-pulse') as maplibregl.GeoJSONSource | undefined;
           pulseSrc?.setData(plannerPulseData());
+          const shadeSrc = map.getSource('trip-route-shade') as maplibregl.GeoJSONSource | undefined;
+          shadeSrc?.setData(tripRouteShadeData());
           const segsSrc = map.getSource('trip-active-segments') as maplibregl.GeoJSONSource | undefined;
           segsSrc?.setData(tripSegmentsData());
           const usedSrc = map.getSource('trip-used-stops') as maplibregl.GeoJSONSource | undefined;
@@ -2284,6 +2387,36 @@ export function MapCanvas({
           'circle-pitch-alignment': 'map',
         },
       });
+
+      // ─── Sombreado del recorrido respecto de la parada fija ──────
+      // Misma línea en dos tonalidades: el tramo anterior a la parada de
+      // referencia queda más oscuro y el posterior más brillante. Se inserta
+      // antes de los buses y de los segmentos activos para preservar A2.
+      map.addSource('trip-route-shade', { type: 'geojson', data: tripRouteShadeData() });
+      map.addLayer({
+        id: 'trip-route-shade-behind',
+        type: 'line',
+        source: 'trip-route-shade',
+        filter: ['==', ['get', 'tone'], 'behind'],
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-opacity': 0.9,
+        },
+      }, 'bus-glow');
+      map.addLayer({
+        id: 'trip-route-shade-ahead',
+        type: 'line',
+        source: 'trip-route-shade',
+        filter: ['==', ['get', 'tone'], 'ahead'],
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4.5,
+          'line-opacity': 0.96,
+        },
+      }, 'bus-glow');
 
       // ─── Ruta activa del viaje seleccionado (UX selección) ───
       // Sin estas capas, tripSegments actualizaba un source invisible.

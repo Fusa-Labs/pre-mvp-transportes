@@ -15,7 +15,7 @@ import { MOCK_LINES, MOCK_ROUTES, MOCK_STOPS } from "@/mock/data";
 import { getRouteTrack, stopsAlongRoute, busProgressOn } from "@/lib/map/route-progress";
 import type { VehiclePosition } from "@/lib/data-service";
 import { segmentBearing, type CameraMode } from "@/lib/map/camera-controller";
-import type { MapFocusRequest, PlannerMapPoints, PlannerMapPulse } from "@/components/map/MapCanvas";
+import type { MapFocusRequest, PlannerMapPoints, PlannerMapPulse, TripRouteShade } from "@/components/map/MapCanvas";
 import { Parada } from "@/types/transport";
 import { TripOption, LocationPoint, TransitLeg } from "@/types/trip-planner";
 import { Navigation, RotateCcw, Eye, X, Search } from "lucide-react";
@@ -170,6 +170,22 @@ export default function TransportesAppPage() {
       ramalId: ride?.ramalId,
     };
   }, [selectedTrip, tripKey, boardingPin, tripSeed]);
+
+  // A3: el corte visual se deriva de la parada de abordaje fija, nunca del
+  // GPS del colectivo. Cambia solo al elegir otro viaje o parada de referencia.
+  const tripRouteShade = useMemo<TripRouteShade | null>(() => {
+    if (!resolvedTrip?.boardingStopId) return null;
+    const ride = resolvedTrip.trip.legs.find((leg): leg is TransitLeg => leg.type === "ride");
+    const stop = TripPlannerService.getStopById(resolvedTrip.boardingStopId);
+    if (!ride || !stop) return null;
+    return {
+      lineId: ride.lineaId,
+      ramalId: ride.ramalId,
+      recorridoId: ride.recorridoId,
+      color: ride.lineaColor,
+      referenceStop: { lat: stop.lat, lng: stop.lng },
+    };
+  }, [resolvedTrip]);
 
   const regularHighlightLines = useMemo(() => {
     if (selectedRamalId) return [selectedRamalId];
@@ -1304,6 +1320,7 @@ export default function TransportesAppPage() {
               plannerPoints={plannerPoints}
               plannerPulse={plannerPulse}
               tripSegments={isTripViewActive && selectedTrip ? selectedTrip.segments : null}
+              tripRouteShade={isTripViewActive ? tripRouteShade : null}
               tripUsedStopIds={isTripViewActive && selectedTrip ? resolvedTripUsedStopIds : null}
               tripFocus={isTripViewActive && !!selectedTrip}
               tripPulseActive={arrivalPhase === 'VIAJANDO_GREEN' || arrivalPhase === 'VIAJANDO_YELLOW'}
