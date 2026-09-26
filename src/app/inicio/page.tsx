@@ -14,15 +14,11 @@ import {
   ArrowLeft,
   Bell,
   Bus,
-  MapPin,
-  RefreshCw,
-  MapPinOff,
   AlertTriangle,
   Route,
   CheckCircle2,
 } from 'lucide-react';
 import { BottomNav } from '@/components/ui/bottom-nav';
-import { ArrivalCard } from '@/components/ui/arrival-card';
 import { LineBadge } from '@/components/ui/line-badge';
 import { AssistantBar } from '@/components/home/AssistantBar';
 import { AssistantAnswerSheet } from '@/components/home/AssistantAnswerSheet';
@@ -40,6 +36,7 @@ import { useFavorites } from '@/hooks/use-favorites';
 import { useAssistantSession } from '@/hooks/use-assistant-session';
 import { assistantRefFromSession } from '@/lib/assistant-session';
 import { TripPlannerService } from '@/lib/services/trip-planner-service';
+import { TransportService } from '@/lib/services/transport-service';
 import {
   nearbyStopsFor,
   resolveAssistantQuery,
@@ -58,10 +55,49 @@ function hashOf(s: string): number {
   return [...s].reduce((a, c) => a + c.charCodeAt(0), 0);
 }
 
+/**
+ * B2 · "Historial de paradas": recorridos demo precargados que ya funcionan
+ * sobre los datos existentes (líneas 65 y 194). Cada uno es un viaje
+ * origen→destino independiente; un tap lo inicia en el mapa. `lineId` se fija
+ * para no caer en el duplicado de la línea 60 (idéntica a la 65).
+ */
+interface SeededRoute {
+  id: string;
+  originStopId: string;
+  destinationStopId: string;
+  lineId: string;
+}
+
+const SEEDED_ROUTES: SeededRoute[] = [
+  {
+    id: 'seed-65-centenario-barrancas',
+    originStopId: 'stop-65-05',
+    destinationStopId: 'stop-65-09',
+    lineId: 'line-65',
+  },
+  {
+    id: 'seed-65-constitucion-barrancas',
+    originStopId: 'stop-65-01',
+    destinationStopId: 'stop-65-09',
+    lineId: 'line-65',
+  },
+  {
+    id: 'seed-194-once-escobar',
+    originStopId: 'stop-194-once',
+    destinationStopId: 'stop-194-escobar-estacion',
+    lineId: 'line-194',
+  },
+  {
+    id: 'seed-194-once-zarate',
+    originStopId: 'stop-194-once',
+    destinationStopId: 'stop-194-zarate-transferencia',
+    lineId: 'line-194',
+  },
+];
+
 export default function HomePage() {
   const router = useRouter();
   const { favorites } = useFavorites();
-  const [refreshKey, setRefreshKey] = useState(0);
 
   // ─── Asistente del inicio (PBI-017 + PBI-019): fases, permiso decorativo,
   //     selector de lugar y respuesta persistida que refresca con GPS live ───
@@ -344,6 +380,46 @@ export default function HomePage() {
     openTripWizard();
   }, [openTripWizard]);
 
+  /**
+   * B2 · "Historial de paradas": cada recorrido demo se resuelve contra los
+   * datos existentes (parada origen/destino + línea) y muestra la próxima
+   * llegada del colectivo en la parada de abordaje. Se recalcula con el tick
+   * de GPS (1 Hz) igual que el asistente.
+   */
+  const seededRoutes = useMemo(
+    () =>
+      SEEDED_ROUTES.flatMap((seed) => {
+        const origin = MOCK_STOPS.find((s) => s.id === seed.originStopId);
+        const destination = MOCK_STOPS.find((s) => s.id === seed.destinationStopId);
+        const line = MOCK_LINES.find((l) => l.id === seed.lineId);
+        if (!origin || !destination || !line) return [];
+        const arrival =
+          TransportService.getArrivals(seed.originStopId, positions)
+            .filter((a) => a.lineaId === seed.lineId)
+            .sort((a, b) => a.minutos - b.minutos)[0] ?? null;
+        return [{ seed, origin, destination, line, arrival }];
+      }),
+    [positions],
+  );
+
+  /** Un tap en un recorrido demo inicia ese viaje en el mapa. */
+  const startSeededTrip = useCallback(
+    (seed: SeededRoute) => {
+      const trip = TripPlannerService.planTrip(seed.originStopId, seed.destinationStopId).find(
+        (option) =>
+          option.legs.some(
+            (leg) =>
+              leg.type === 'ride' &&
+              leg.lineaId === seed.lineId &&
+              leg.fromStop.id === seed.originStopId,
+          ),
+      );
+      if (!trip) return;
+      router.push(tripMapUrl(trip, trip.origin, { boardingStopId: seed.originStopId }));
+    },
+    [router],
+  );
+
   const stops = useMemo(
     () =>
       favorites.flatMap((favorite) => {
@@ -354,14 +430,13 @@ export default function HomePage() {
           .map((lineId, i) => {
             const line = MOCK_LINES.find((l) => l.id === lineId);
             if (!line) return null;
-            const etaMin =
-              ((hashOf(stop.id + lineId) + refreshKey * 7 + i * 3) % 12) + 1;
+            const etaMin = ((hashOf(stop.id + lineId) + i * 3) % 12) + 1;
             return { line, etaMin, live: true };
           })
           .filter((a) => a !== null);
         return [{ stop, arrivals }];
       }),
-    [favorites, refreshKey],
+    [favorites],
   );
 
   const today = new Date().toLocaleDateString('es-AR', {
@@ -456,100 +531,45 @@ export default function HomePage() {
 
         <section>
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-[20px] font-semibold text-ink">Tus paradas</h2>
-            <span className="text-xs text-text-muted bg-canvas-soft px-2 py-1 rounded-full border border-hairline-soft">
-              {stops.length} {stops.length === 1 ? 'parada' : 'paradas'}
-            </span>
+            <h2 className="text-[20px] font-semibold text-ink">Historial de paradas</h2>
           </div>
 
-          {hasStops ? (
-            <div className="flex flex-col gap-4">
-              {stops.map(({ stop, arrivals }) => (
-                <div
-                  key={stop.id}
-                  className="bg-canvas rounded-2xl border border-hairline shadow-sm overflow-hidden"
-                >
-                  <div className="flex items-center justify-between p-3 border-b border-hairline-soft">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-ink" />
-                      <h3 className="text-lg font-bold text-ink">
-                        {stop.name}
-                      </h3>
-                    </div>
-                    <div className="flex gap-1">
-                      {MOCK_LINES.filter((l) =>
-                        stop.lineIds.includes(l.id),
-                      ).map((line) => (
-                        <LineBadge
-                          key={line.id}
-                          shortName={line.shortName}
-                          size="sm"
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="p-2">
-                    <div className="flex flex-col gap-1">
-                      {arrivals.map((arrival, i) => (
-                        <ArrivalCard
-                          key={`${arrival.line.id}-${i}`}
-                          lineName={arrival.line.shortName}
-                          lineDirection={arrival.line.direction}
-                          lineColor={arrival.line.color}
-                          etaMin={arrival.etaMin}
-                          live={arrival.live}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="p-2 pt-0">
-                    <button
-                      onClick={() => router.push(`/parada/${stop.id}`)}
-                      className="w-full h-10 text-sm font-semibold text-ink hover:bg-canvas-soft rounded-lg transition-colors"
-                    >
-                      Ver todas las llegadas
-                    </button>
-                  </div>
+          <div className="flex flex-col gap-3">
+            {seededRoutes.map(({ seed, origin, destination, line, arrival }) => (
+              <button
+                key={seed.id}
+                type="button"
+                onClick={() => startSeededTrip(seed)}
+                aria-label={`Iniciar viaje desde ${origin.name} hacia ${destination.name} en la línea ${line.shortName}`}
+                className="w-full text-left bg-canvas rounded-2xl border border-hairline shadow-sm p-4 flex items-center gap-3 hover:bg-canvas-soft active:scale-[0.99] transition-all"
+              >
+                <LineBadge shortName={line.shortName} color={line.color} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold text-text-muted truncate">
+                    {origin.name}
+                  </p>
+                  <p className="text-sm font-bold text-ink truncate">
+                    → {destination.name}
+                  </p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-canvas rounded-xl border border-hairline p-8 text-center">
-              <MapPinOff className="w-12 h-12 text-text-faint mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-ink mb-2">
-                Sin paradas guardadas
-              </h3>
-              <p className="text-sm text-text-muted mb-4 max-w-[280px] mx-auto">
-                Agregá tus paradas frecuentes para ver las llegadas al instante.
-              </p>
-              <button
-                onClick={() => router.push('/mapas')}
-                className="h-10 px-6 bg-ink text-canvas text-sm font-semibold rounded-lg hover:bg-ink-soft transition-colors active:scale-[0.98]"
-              >
-                Buscar paradas
+                <div className="text-right shrink-0">
+                  {arrival ? (
+                    <>
+                      <p className="text-xl font-extrabold text-ink leading-none">
+                        {arrival.displayLabel ??
+                          (arrival.minutos === 0 ? 'Llega' : `${arrival.minutos} min`)}
+                      </p>
+                      <span className="text-[10px] font-semibold text-text-muted">
+                        en vivo
+                      </span>
+                    </>
+                  ) : (
+                    <p className="text-xs font-semibold text-text-muted">sin datos</p>
+                  )}
+                </div>
               </button>
-            </div>
-          )}
-
-          {hasStops && (
-            <div className="flex items-center justify-center gap-2 mt-3">
-              <span className="text-xs text-text-faint">
-                Última actualización:{' '}
-                {new Date().toLocaleTimeString('es-AR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
-              <button
-                onClick={() => setRefreshKey((k) => k + 1)}
-                className="text-xs font-semibold text-ink hover:underline inline-flex items-center gap-1"
-                aria-label="Actualizar llegadas"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Actualizar
-              </button>
-            </div>
-          )}
+            ))}
+          </div>
         </section>
 
         {/* Alertas — primer incidente activo del catálogo */}
