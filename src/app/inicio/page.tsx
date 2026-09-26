@@ -11,8 +11,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft,
-  Bus,
   AlertTriangle,
   Route,
   CheckCircle2,
@@ -62,10 +60,6 @@ const ALERT_BADGE_LABEL: Record<string, string> = {
 function activeAlertLabelForLine(lineId: string): string | null {
   const alert = ACTIVE_ALERTS.find((a) => a.lineId === lineId && a.disrupcion);
   return alert ? (ALERT_BADGE_LABEL[alert.type] ?? 'ALERTA') : null;
-}
-
-function hashOf(s: string): number {
-  return [...s].reduce((a, c) => a + c.charCodeAt(0), 0);
 }
 
 /**
@@ -433,45 +427,16 @@ export default function HomePage() {
     [router],
   );
 
-  const stops = useMemo(
-    () =>
-      favorites.flatMap((favorite) => {
-        const stop = MOCK_STOPS.find((s) => s.id === favorite.stopId);
-        if (!stop) return [];
-        const arrivals = stop.lineIds
-          .slice(0, 2)
-          .map((lineId, i) => {
-            const line = MOCK_LINES.find((l) => l.id === lineId);
-            if (!line) return null;
-            const etaMin = ((hashOf(stop.id + lineId) + i * 3) % 12) + 1;
-            return { line, etaMin, live: true };
-          })
-          .filter((a) => a !== null);
-        return [{ stop, arrivals }];
-      }),
-    [favorites],
-  );
-
   const today = new Date().toLocaleDateString('es-AR', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
   });
 
-  const hasStops = stops.length > 0;
-  const nextArrival = hasStops ? stops[0].arrivals[0] : null;
-
   return (
     <div className="h-dvh bg-canvas flex flex-col overflow-hidden">
       <header className="px-4 pt-6 pb-2 bg-canvas flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
-          <Link
-            href="/"
-            aria-label="Volver al inicio"
-            className="-ml-2 h-12 w-12 flex items-center justify-center rounded-full text-ink hover:bg-canvas-soft active:scale-95 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
           <MetropolRose className="h-6 w-auto" />
           <div>
             <h1 className="text-[22px] font-bold text-ink leading-tight">
@@ -489,41 +454,6 @@ export default function HomePage() {
         <div className="mt-2">
           <AssistantBar onSubmit={handleDestinationSearch} />
         </div>
-
-        {/* Llegada destacada */}
-        {nextArrival && (
-          <section className="relative overflow-hidden rounded-3xl bg-[linear-gradient(140deg,#0E2B7A_0%,#1D4ED8_100%)] p-5 text-white shadow-lg mt-2">
-            <Bus className="absolute -right-4 -bottom-5 w-28 h-28 text-white/[0.07] pointer-events-none" />
-            <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/55">
-              Próxima llegada
-            </p>
-            <div className="flex items-end justify-between mt-3 relative z-10">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <span className="h-8 px-2.5 rounded-lg bg-white text-[#0E2B7A] font-extrabold text-sm inline-flex items-center shadow-sm">
-                    {nextArrival.line.shortName}
-                  </span>
-                  <span className="text-sm font-semibold text-white/85">
-                    {nextArrival.line.direction}
-                  </span>
-                </div>
-                <p className="text-xs text-white/60 mt-2">
-                  {stops[0].stop.name}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-5xl font-extrabold leading-none tracking-tight">
-                  {nextArrival.etaMin}
-                  <span className="text-base font-bold ml-1">min</span>
-                </p>
-                <span className="inline-flex items-center gap-1 mt-2 h-5 px-2 rounded-full bg-white/15 border border-white/20 text-[9px] font-bold tracking-widest">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#71EE8A] animate-pulse" />
-                  EN VIVO
-                </span>
-              </div>
-            </div>
-          </section>
-        )}
 
         <section>
           <div className="flex items-center justify-between mb-2">
