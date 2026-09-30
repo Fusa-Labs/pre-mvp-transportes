@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { ArrowUpDown, X, Crosshair, MapPin } from "lucide-react";
+import { ArrowUpDown, X, Crosshair } from "lucide-react";
 import { LocationPoint } from "@/types/trip-planner";
 import { GreenFlagUiIcon, CheckeredFlagUiIcon } from "@/components/viaje/ViajePanel";
 
@@ -94,11 +94,11 @@ export default function ViajeHeader({
             <button
               type="button"
               onClick={() => onStartMapPick?.("origin")}
-              title="Fijar pin de origen en el mapa"
+              title="Fijar origen en el mapa"
               aria-label="Fijar origen en el mapa"
               className="w-6 h-6 rounded-full flex items-center justify-center text-text-muted hover:text-ink hover:bg-canvas-soft transition-colors active:scale-90 shrink-0 ml-1.5"
             >
-              <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <Crosshair className="w-3.5 h-3.5 text-text-muted hover:text-ink dark:text-white" />
             </button>
           </div>
 
@@ -113,11 +113,11 @@ export default function ViajeHeader({
             <button
               type="button"
               onClick={() => onStartMapPick?.("destination")}
-              title="Fijar pin de destino en el mapa"
+              title="Fijar destino en el mapa"
               aria-label="Fijar destino en el mapa"
               className="w-6 h-6 rounded-full flex items-center justify-center text-text-muted hover:text-ink hover:bg-canvas-soft transition-colors active:scale-90 shrink-0 ml-1.5"
             >
-              <MapPin className="w-3.5 h-3.5 text-text-muted hover:text-ink" />
+              <Crosshair className="w-3.5 h-3.5 text-text-muted hover:text-ink dark:text-white" />
             </button>
           </div>
         </div>

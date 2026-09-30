@@ -42,6 +42,7 @@ import {
   busShadowSvg,
   busTopDownSvg,
   lightenHex,
+  shadeHex,
 } from '@/lib/map/vehicle-sprites';
 import { isIsoFlipped, isoBillboardRotation, shadowRotation } from '@/lib/map/vehicle-billboard';
 import { headingDelta, nextSteerBucket, smoothSteerRate } from '@/lib/map/vehicle-steer';
@@ -80,6 +81,7 @@ export interface MapFocusRequest {
   bearing?: number;
   /** Techo de zoom para que un segmento corto no sobre-zoomee. */
   maxZoom?: number;
+  minZoom?: number;
 }
 
 /** Borrador del planner (Fase 4): marcadores de origen y destino. */
@@ -582,19 +584,40 @@ export function MapCanvas({
     const raf = requestAnimationFrame(() => {
       const map = mapRef.current;
       if (!map || !focusRequest) return;
-      map.fitBounds(focusRequest.bounds, {
-        padding: clampFitPadding(map, {
-          top: 130,
-          bottom: (focusRequest.bottomPadding ?? cameraBottomPadding) + 48,
-          left: 60,
-          right: 60,
-        }),
-        duration: 900,
-        essential: true,
-        ...(focusRequest.pitch !== undefined ? { pitch: focusRequest.pitch } : {}),
-        ...(focusRequest.bearing !== undefined ? { bearing: focusRequest.bearing } : {}),
+      const desiredBottom = focusRequest.bottomPadding !== undefined ? focusRequest.bottomPadding : 85;
+      const padding = clampFitPadding(map, {
+        top: 85,
+        bottom: desiredBottom,
+        left: 28,
+        right: 28,
+      });
+      const camera = map.cameraForBounds(focusRequest.bounds, {
+        padding,
         ...(focusRequest.maxZoom !== undefined ? { maxZoom: focusRequest.maxZoom } : {}),
       });
+      if (camera && camera.center) {
+        const baseZoom = camera.zoom ?? 14;
+        const finalZoom = focusRequest.minZoom !== undefined
+          ? Math.max(baseZoom, focusRequest.minZoom)
+          : baseZoom;
+        map.easeTo({
+          center: camera.center,
+          zoom: finalZoom,
+          pitch: focusRequest.pitch ?? 0,
+          bearing: focusRequest.bearing ?? 0,
+          duration: 900,
+          essential: true,
+        });
+      } else {
+        map.fitBounds(focusRequest.bounds, {
+          padding,
+          duration: 900,
+          essential: true,
+          ...(focusRequest.pitch !== undefined ? { pitch: focusRequest.pitch } : {}),
+          ...(focusRequest.bearing !== undefined ? { bearing: focusRequest.bearing } : {}),
+          ...(focusRequest.maxZoom !== undefined ? { maxZoom: focusRequest.maxZoom } : {}),
+        });
+      }
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -752,7 +775,7 @@ export function MapCanvas({
             headingIcon: `heading-${m.lineId}${dirSuffix}`,
             topDown: `top-${m.lineId}${dirSuffix}`,
             iso: isoIcon,
-            colorLight: m.direction === 'vuelta' ? '#FCA5A5' : m.direction === 'ida' ? '#7DD3FC' : (LINE_COLOR_LIGHT[m.lineId] ?? '#67E8F9'),
+            colorLight: LINE_COLOR_LIGHT[m.lineId] ?? '#7DD3FC',
             heading: Math.round(pos.heading),
             isoRotate: isoBillboardRotation(pos.heading, camBearing),
             shadowRotate: shadowRotation(pos.heading),
@@ -829,25 +852,28 @@ export function MapCanvas({
       // Trail: empuja la posición del seleccionado cada 300ms — cometa
       // que se desvanece. Se resetea si cambia la unidad seleccionada.
       const selKeyNow = selectedRef.current;
+      const srcTrail = map.getSource('bus-trail') as maplibregl.GeoJSONSource | undefined;
       if (selKeyNow !== trailKey) {
         trailKey = selKeyNow;
         trail = [];
-        const meta = selKeyNow ? metaMap.get(selKeyNow) : undefined;
-        trailColor = meta?.direction === 'vuelta' ? '#EF4444' : meta?.direction === 'ida' ? '#0EA5E9' : (MOCK_LINES.find((l) => l.id === meta?.lineId)?.color ?? '#101D3D');
         lastTrailPush = 0;
+        if (srcTrail) {
+          srcTrail.setData(emptyTrail);
+        }
+        const meta = selKeyNow ? metaMap.get(selKeyNow) : undefined;
+        trailColor = MOCK_LINES.find((l) => l.id === meta?.lineId)?.color ?? '#0EA5E9';
       }
-      const srcTrail = map.getSource('bus-trail') as maplibregl.GeoJSONSource | undefined;
-      if (srcTrail) {
-        const cur = selKeyNow ? currentMap.get(selKeyNow) : undefined;
+      if (srcTrail && selKeyNow) {
+        const cur = currentMap.get(selKeyNow);
         if (cur && now - lastTrailPush > 300) {
           lastTrailPush = now;
           trail.push([cur.lng, cur.lat]);
           if (trail.length > 16) trail.shift();
           srcTrail.setData(trailData());
-        } else if (!cur && trail.length > 0) {
-          trail = [];
-          srcTrail.setData(emptyTrail);
         }
+      } else if (srcTrail && !selKeyNow) {
+        if (trail.length > 0) trail = [];
+        srcTrail.setData(emptyTrail);
       }
 
       // Ventana de animación: tick + presupuesto de dead-reckoning.
@@ -894,15 +920,15 @@ export function MapCanvas({
       // padding respeta el sheet.
       const selKey = selectedRef.current;
       const mode = cameraModeRef.current;
-      // Encuadre dual SIEMPRE que haya parada de abordaje (2D y 3D): el bondi
-      // elegido y la parada quedan arriba del modal, con zoom según distancia.
+      // Si el modo es 'follow-trip', encuadre dual bondi + parada.
+      // Si el modo es 'follow-vehicle' o 'navigation-vehicle', seguimiento 3D cercano directo del vehículo.
       const tripHasStop = Boolean(followTripStopRef.current);
-      if (selKey && (mode === 'follow-trip' || ((mode === 'follow-vehicle' || mode === 'navigation-vehicle') && tripHasStop))) {
+      if (selKey && mode === 'follow-trip' && tripHasStop) {
         applyFollowTripFrame(TICK_MS + 120);
       } else if (selKey && (mode === 'follow-vehicle' || mode === 'navigation-vehicle')) {
         const live = motionMap.get(selKey)?.frame(Date.now());
         if (live) {
-          const frame = vehicleCameraFrame(live, mode);
+          const frame = vehicleCameraFrame(live, mode, trip3DRef.current);
           map.easeTo({
             center: frame.center,
             zoom: frame.zoom,
@@ -921,12 +947,25 @@ export function MapCanvas({
     ingestRef.current = ingestPositions;
     refreshRef.current = refreshVehicles;
     cameraApplyRef.current = () => {
+      isProgrammaticCamera = true;
+      setTimeout(() => { isProgrammaticCamera = false; }, 600);
       const mode = cameraModeRef.current;
+      if (mode === 'overview') {
+        map.easeTo({
+          center: [-58.445, -34.605],
+          zoom: 12.2,
+          pitch: 0,
+          bearing: 0,
+          duration: 650,
+          padding: { bottom: 0 },
+        });
+        return;
+      }
       if (mode === 'follow-user') {
         followUserFrame();
         return;
       }
-      if (mode === 'follow-trip' || ((mode === 'follow-vehicle' || mode === 'navigation-vehicle') && followTripStopRef.current)) {
+      if (mode === 'follow-trip' && followTripStopRef.current) {
         applyFollowTripFrame(450);
         return;
       }
@@ -934,7 +973,7 @@ export function MapCanvas({
       if (!selKey || (mode !== 'follow-vehicle' && mode !== 'navigation-vehicle')) return;
       const live = currentMap.get(selKey) ?? motionMap.get(selKey)?.frame(Date.now());
       if (!live) return;
-      const frame = vehicleCameraFrame(live, mode);
+      const frame = vehicleCameraFrame(live, mode, trip3DRef.current);
       map.easeTo({
         ...frame,
         duration: mode === 'navigation-vehicle' ? 650 : 450,
@@ -971,8 +1010,9 @@ export function MapCanvas({
         padding: { bottom: cameraBottomPaddingRef.current },
       });
     };
-    // Encuadre dual bondi + parada (modo 'follow-trip'): consume el MISMO frame
-    // renderizado que el símbolo. Sin parada disponible, degrada a follow-vehicle.
+    // Encuadre bondi + parada (modo 'follow-trip'): si el bondi está cerca (<350m),
+    // encuadre dual. Si está más lejos (ej: coches 55 o 51 en alternativas), seguimiento
+    // 3D cercano en primera persona (<250m de altura) sin alejar la cámara.
     const applyFollowTripFrame = (duration: number) => {
       const selKey = selectedRef.current;
       if (!selKey) return;
@@ -980,33 +1020,43 @@ export function MapCanvas({
       if (!live) return;
       const stop = followTripStopRef.current;
       if (stop) {
-        map.fitBounds(
-          [
+        const dLat = (live.lat - stop.lat) * 111320;
+        const dLng = (live.lng - stop.lng) * 111320 * Math.cos((((live.lat + stop.lat) / 2) * Math.PI) / 180);
+        const distToStop = Math.sqrt(dLat * dLat + dLng * dLng);
+
+        // Si la distancia es hasta 1.2 km: encuadre dual centrado en el punto medio
+        // entre el próximo colectivo que viene y la parada de subida
+        if (distToStop <= 1200) {
+          const bounds: [[number, number], [number, number]] = [
             [Math.min(live.lng, stop.lng), Math.min(live.lat, stop.lat)],
             [Math.max(live.lng, stop.lng), Math.max(live.lat, stop.lat)],
-          ],
-          {
-            padding: clampFitPadding(map, {
-              top: 200,
-              bottom: cameraBottomPaddingRef.current + 80,
-              left: 48,
-              right: 48,
-            }),
-            maxZoom: 16.2,
-            pitch: trip3DRef.current || cameraModeRef.current === 'navigation-vehicle' ? 52 : 0,
-            bearing: trip3DRef.current || cameraModeRef.current === 'navigation-vehicle' ? live.heading : 0,
-            duration,
-            easing: (t) => t,
-          },
-        );
-        return;
+          ];
+          const padding = clampFitPadding(map, {
+            top: 160,
+            bottom: cameraBottomPaddingRef.current + 80,
+            left: 60,
+            right: 60,
+          });
+          const camera = map.cameraForBounds(bounds, { padding, maxZoom: 16.5 });
+          if (camera && camera.center) {
+            map.easeTo({
+              center: camera.center,
+              zoom: camera.zoom,
+              pitch: trip3DRef.current ? 48 : 0,
+              bearing: trip3DRef.current ? live.heading : 0,
+              duration,
+              easing: (t) => t,
+            });
+            return;
+          }
+        }
       }
-      const frame = vehicleCameraFrame(live, 'follow-vehicle');
+      const frame = vehicleCameraFrame(live, 'follow-vehicle', trip3DRef.current);
       map.easeTo({
         center: frame.center,
-        zoom: frame.zoom,
-        pitch: frame.pitch,
-        bearing: frame.bearing,
+        zoom: Math.max(15.8, frame.zoom),
+        pitch: trip3DRef.current ? 52 : frame.pitch,
+        bearing: trip3DRef.current ? live.heading : frame.bearing,
         duration,
         easing: (t) => t,
         padding: { bottom: cameraBottomPaddingRef.current + 48 },
@@ -1145,7 +1195,8 @@ export function MapCanvas({
               {
                 type: 'Feature' as const,
                 geometry: { type: 'LineString' as const, coordinates: split.behind },
-                properties: { tone: 'behind', color: TRAVERSED_ROUTE_COLOR },
+                // Tonalidad 42% más oscura y derivada del mismo color oficial de la línea (escalable a cualquier línea)
+                properties: { tone: 'behind', color: shadeHex(shade.color, -0.42) },
               },
               {
                 type: 'Feature' as const,
@@ -1196,8 +1247,12 @@ export function MapCanvas({
           else stopPlannerPulse();
         };
 
-    // Un gesto manual libera la cámara y habilita el CTA de recentrado.
-    const stopFollow = () => {
+    // Un gesto manual del usuario libera la cámara y habilita el CTA de recentrado.
+    // Blindado contra animaciones internas de MapLibre (easeTo / fitBounds) para que transiciones 2D/3D no caigan en free.
+    let isProgrammaticCamera = false;
+    const stopFollow = (event?: { originalEvent?: unknown }) => {
+      if (isProgrammaticCamera) return;
+      if (event && !event.originalEvent) return;
       if (
         cameraModeRef.current === 'follow-vehicle' ||
         cameraModeRef.current === 'follow-trip' ||
@@ -1209,10 +1264,10 @@ export function MapCanvas({
         cameraModeHandlerRef.current?.('free');
       }
     };
-    map.on('dragstart', stopFollow);
-    map.on('zoomstart', (event) => { if (event.originalEvent) stopFollow(); });
-    map.on('rotatestart', (event) => { if (event.originalEvent) stopFollow(); });
-    map.on('pitchstart', (event) => { if (event.originalEvent) stopFollow(); });
+    map.on('dragstart', (e) => { if (e.originalEvent) stopFollow(e); });
+    map.on('zoomstart', (e) => { if (e.originalEvent) stopFollow(e); });
+    map.on('rotatestart', (e) => { if (e.originalEvent) stopFollow(e); });
+    map.on('pitchstart', (e) => { if (e.originalEvent) stopFollow(e); });
 
     // ─── Sombra en pitch: ajuste EVENT-DRIVEN (sin RAF) ─────
     // Al cruzar 25° de pitch la sombra se estira y oscurece UNA vez —
@@ -1624,6 +1679,7 @@ export function MapCanvas({
       if (map.getLayer('stops')) {
         const stopFeats = map.queryRenderedFeatures(box, { layers: ['stops'] });
         if (stopFeats.length > 0) {
+          if (tripFocusRef.current) return; // En modo viaje las paradas no abren popups invasivos
           const stopId = String(stopFeats[0]?.properties?.id ?? '');
           if (stopId) {
             // Si se hace clic en la misma parada ya seleccionada, deseleccionar
@@ -1691,6 +1747,7 @@ export function MapCanvas({
       }
       const feats = [...unique.values()];
       if (feats.length === 0) {
+        if (tripFocusRef.current) return; // En modo viaje un clic en el asfalto no deselecciona el colectivo
         selectHandlerRef.current?.(null);
         if (selectedStopIdRef.current) {
           stopPopup.remove();
@@ -1789,7 +1846,7 @@ export function MapCanvas({
         paint: {
           'line-color': dark ? '#E8ECF2' : '#FFFFFF',
           'line-width': ['interpolate', ['linear'], ['zoom'], 13, 6, 15.5, 7.8, 18, 10],
-          'line-opacity': 0.9,
+          'line-opacity': 0, // Contorno blanco eliminado para trazas limpias directas
           'line-offset': [
             'interpolate', ['linear'], ['zoom'],
             10, ['match', ['get', 'direction'], 'ida', 1.2, 'vuelta', 1.2, 0],
@@ -2093,32 +2150,32 @@ export function MapCanvas({
       const iconDefs: { id: string; svg: string; w: number; h: number }[] = [
         ...MOCK_LINES.flatMap((line) => [
           { id: `badge-${line.id}`, svg: busBadgeSvg(line.color, line.shortName), w: 96, h: 96 },
-          { id: `badge-${line.id}-ida`, svg: busBadgeSvg('#0EA5E9', line.shortName), w: 96, h: 96 },
-          { id: `badge-${line.id}-vuelta`, svg: busBadgeSvg('#EF4444', line.shortName), w: 96, h: 96 },
+          { id: `badge-${line.id}-ida`, svg: busBadgeSvg(line.color, line.shortName), w: 96, h: 96 },
+          { id: `badge-${line.id}-vuelta`, svg: busBadgeSvg(line.color, line.shortName), w: 96, h: 96 },
           { id: `heading-${line.id}`, svg: busHeadingSvg(line.color), w: 96, h: 96 },
-          { id: `heading-${line.id}-ida`, svg: busHeadingSvg('#0EA5E9'), w: 96, h: 96 },
-          { id: `heading-${line.id}-vuelta`, svg: busHeadingSvg('#EF4444'), w: 96, h: 96 },
+          { id: `heading-${line.id}-ida`, svg: busHeadingSvg(line.color), w: 96, h: 96 },
+          { id: `heading-${line.id}-vuelta`, svg: busHeadingSvg(line.color), w: 96, h: 96 },
           { id: `top-${line.id}`, svg: busTopDownSvg(line.color), w: 96, h: 96 },
-          { id: `top-${line.id}-ida`, svg: busTopDownSvg('#0EA5E9'), w: 96, h: 96 },
-          { id: `top-${line.id}-vuelta`, svg: busTopDownSvg('#EF4444'), w: 96, h: 96 },
+          { id: `top-${line.id}-ida`, svg: busTopDownSvg(line.color), w: 96, h: 96 },
+          { id: `top-${line.id}-vuelta`, svg: busTopDownSvg(line.color), w: 96, h: 96 },
           { id: `iso-${line.id}`, svg: busIsoSvg(line.color), w: ISO_W, h: ISO_H },
-          { id: `iso-${line.id}-ida`, svg: busIsoSvg('#0EA5E9'), w: ISO_W, h: ISO_H },
-          { id: `iso-${line.id}-vuelta`, svg: busIsoSvg('#EF4444'), w: ISO_W, h: ISO_H },
+          { id: `iso-${line.id}-ida`, svg: busIsoSvg(line.color), w: ISO_W, h: ISO_H },
+          { id: `iso-${line.id}-vuelta`, svg: busIsoSvg(line.color), w: ISO_W, h: ISO_H },
           { id: `isoL-${line.id}`, svg: busIsoSvg(line.color, -1), w: ISO_W, h: ISO_H },
-          { id: `isoL-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', -1), w: ISO_W, h: ISO_H },
-          { id: `isoL-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', -1), w: ISO_W, h: ISO_H },
+          { id: `isoL-${line.id}-ida`, svg: busIsoSvg(line.color, -1), w: ISO_W, h: ISO_H },
+          { id: `isoL-${line.id}-vuelta`, svg: busIsoSvg(line.color, -1), w: ISO_W, h: ISO_H },
           { id: `isoR-${line.id}`, svg: busIsoSvg(line.color, 1), w: ISO_W, h: ISO_H },
-          { id: `isoR-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 1), w: ISO_W, h: ISO_H },
-          { id: `isoR-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 1), w: ISO_W, h: ISO_H },
+          { id: `isoR-${line.id}-ida`, svg: busIsoSvg(line.color, 1), w: ISO_W, h: ISO_H },
+          { id: `isoR-${line.id}-vuelta`, svg: busIsoSvg(line.color, 1), w: ISO_W, h: ISO_H },
           { id: `isoFlip-${line.id}`, svg: busIsoSvg(line.color, 0, true), w: ISO_W, h: ISO_H },
-          { id: `isoFlip-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 0, true), w: ISO_W, h: ISO_H },
-          { id: `isoFlip-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 0, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlip-${line.id}-ida`, svg: busIsoSvg(line.color, 0, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlip-${line.id}-vuelta`, svg: busIsoSvg(line.color, 0, true), w: ISO_W, h: ISO_H },
           { id: `isoFlipL-${line.id}`, svg: busIsoSvg(line.color, -1, true), w: ISO_W, h: ISO_H },
-          { id: `isoFlipL-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', -1, true), w: ISO_W, h: ISO_H },
-          { id: `isoFlipL-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', -1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipL-${line.id}-ida`, svg: busIsoSvg(line.color, -1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipL-${line.id}-vuelta`, svg: busIsoSvg(line.color, -1, true), w: ISO_W, h: ISO_H },
           { id: `isoFlipR-${line.id}`, svg: busIsoSvg(line.color, 1, true), w: ISO_W, h: ISO_H },
-          { id: `isoFlipR-${line.id}-ida`, svg: busIsoSvg('#0EA5E9', 1, true), w: ISO_W, h: ISO_H },
-          { id: `isoFlipR-${line.id}-vuelta`, svg: busIsoSvg('#EF4444', 1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipR-${line.id}-ida`, svg: busIsoSvg(line.color, 1, true), w: ISO_W, h: ISO_H },
+          { id: `isoFlipR-${line.id}-vuelta`, svg: busIsoSvg(line.color, 1, true), w: ISO_W, h: ISO_H },
         ]),
         { id: 'shadow-blob', svg: busShadowSvg(), w: 96, h: 96 },
       ];
@@ -2432,7 +2489,7 @@ export function MapCanvas({
         paint: {
           'line-color': '#FFFFFF',
           'line-width': 7,
-          'line-opacity': 0.9,
+          'line-opacity': 0, // Contorno blanco eliminado en modo viaje
         },
       }, 'bus-glow');
       map.addLayer({

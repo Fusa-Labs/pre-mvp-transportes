@@ -407,8 +407,10 @@ function initializeVehicles(): void {
       const count = rUnits.length;
 
       rUnits.forEach((unitId, idx) => {
+        // Calibración de inmediatez para demo (Regla A): Coche 62 arranca a ~50s (240m) de Parque Centenario
+        const demoOffset = lineId === 'line-65' ? 520 : 0;
         // Espaciado equitativo a lo largo de la traza de este ramal específico
-        const spacedDist = (idx / Math.max(1, count)) * routeCache.totalLength;
+        const spacedDist = (((idx / Math.max(1, count)) * routeCache.totalLength + demoOffset) % routeCache.totalLength);
         vehicles.push(createVehicle(lineId, unitId, routeCache, stops, undefined, spacedDist));
       });
     }
@@ -474,12 +476,17 @@ function tick(): void {
  * Suscribirse a posiciones de vehículos (feed 1 Hz).
  * Retorna función para desuscribirse.
  */
+let isInitialized = false;
+
 export function subscribeToPositions(
   lineIds: string[],
   cb: (positions: VehiclePosition[]) => void,
 ): Unsubscribe {
-  if (subscribers.length === 0) {
+  if (!isInitialized) {
     initializeVehicles();
+    isInitialized = true;
+  }
+  if (!tickIntervalId) {
     tickIntervalId = setInterval(tick, TICK_INTERVAL_MS);
     // Primer tick inmediato
     tick();

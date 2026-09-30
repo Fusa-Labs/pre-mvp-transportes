@@ -49,6 +49,17 @@ function buildTripKey(
   return `${o}>${d}#${tripId ?? "-"}`;
 }
 
+// Helper universal: bounds estrictos entre la primera parada y la última parada del viaje seleccionado
+function getTripStartEndBounds(trip: TripOption): [[number, number], [number, number]] {
+  const ride = trip.legs.find((leg): leg is TransitLeg => leg.type === "ride");
+  const p1 = ride?.fromStop ? { lng: ride.fromStop.lng, lat: ride.fromStop.lat } : { lng: trip.origin.lng, lat: trip.origin.lat };
+  const p2 = ride?.toStop ? { lng: ride.toStop.lng, lat: ride.toStop.lat } : { lng: trip.destination.lng, lat: trip.destination.lat };
+  return [
+    [Math.min(p1.lng, p2.lng), Math.min(p1.lat, p2.lat)],
+    [Math.max(p1.lng, p2.lng), Math.max(p1.lat, p2.lat)],
+  ];
+}
+
 export default function TransportesAppPage() {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -105,6 +116,14 @@ export default function TransportesAppPage() {
   const [boardingUnitKey, setBoardingUnitKey] = useState<string | null>(null);
   // sdd/trip-options-upgrade: colapso del ViajePanel para padding dual + reframe.
   const [isTripPanelCollapsed, setIsTripPanelCollapsed] = useState(true);
+  // Simulación de abordaje de pasajero en parada
+  const [isWaitingToBoard, setIsWaitingToBoard] = useState(false);
+  const [isBoarded, setIsBoarded] = useState(false);
+  const [isTripPanoramaActive, setIsTripPanoramaActive] = useState<boolean>(false);
+  const [latchedArriving, setLatchedArriving] = useState(false);
+  const [arrivedAtMs, setArrivedAtMs] = useState<number | null>(null);
+  const [onboard, setOnboard] = useState<{ vehicleKey: string; boardedAtMs: number; lineaNumero: string; unitId: string } | null>(null);
+  const [rideStops, setRideStops] = useState<string[]>([]);
   // Aire inferior dinámico según el sheet (declarado antes del focusRequest).
   const tripBottomPadding = isTripPanelCollapsed ? TRIP_PAD_COLLAPSED : TRIP_PAD_EXPANDED;
 
@@ -197,9 +216,32 @@ export default function TransportesAppPage() {
     return []; // Ocultas por defecto: trazas invisibles hasta que el usuario elija línea o ramal
   }, [selectedLineaId, selectedRamalId]);
 
+  // sdd/trip-options-upgrade 2.1: filas de abordaje (≤3) por parada de subida.
+  const boardingArrivals = useMemo(() => {
+    if (!resolvedTrip?.boardingStopId) return [];
+    return TransportService.getLlegadasPorParada(resolvedTrip.boardingStopId, positions);
+  }, [resolvedTrip, positions]);
+
+  const boardingOptions = useMemo(() => {
+    if (!selectedTrip) return [];
+    return buildBoardingOptions(selectedTrip, boardingArrivals);
+  }, [selectedTrip, boardingArrivals]);
+
   const filteredPositions = useMemo(() => {
-    if (resolvedTrip && selectedVehiculo) {
-      return positions.filter((p) => p.lineId === selectedVehiculo.lineId && p.unitId === selectedVehiculo.unitId);
+    if (resolvedTrip) {
+      // Regla estricta del convoy: SOLO las 3 unidades de boardingOptions (ej: 62, 58, 55)
+      // + el coche seleccionado si se eligió otro manualmente. CERO saturación de flota.
+      const visibleKeys = new Set(boardingOptions.slice(0, 3).map((b) => `${b.lineaId}-${b.interno}`));
+      if (selectedVehiculo) {
+        visibleKeys.add(`${selectedVehiculo.lineId}-${selectedVehiculo.unitId}`);
+      }
+      if (boardingUnitKey) {
+        visibleKeys.add(boardingUnitKey);
+      }
+      if (onboard) {
+        visibleKeys.add(onboard.vehicleKey);
+      }
+      return positions.filter((p) => visibleKeys.has(`${p.lineId}-${p.unitId}`));
     }
     if (selectedRamalId) {
       return positions.filter((p) => p.ramalId === selectedRamalId);
@@ -208,7 +250,7 @@ export default function TransportesAppPage() {
       return positions.filter((p) => p.lineId === selectedLineaId);
     }
     return [];
-  }, [positions, resolvedTrip, selectedVehiculo, selectedLineaId, selectedRamalId]);
+  }, [positions, resolvedTrip, boardingOptions, selectedVehiculo, boardingUnitKey, onboard, selectedRamalId, selectedLineaId]);
 
   const selectedKey = useMemo(() => {
     return selectedVehiculo ? `${selectedVehiculo.lineId}-${selectedVehiculo.unitId}` : null;
@@ -301,17 +343,6 @@ export default function TransportesAppPage() {
     ) ?? null;
   }, [resolvedTrip, positions, selectedVehiculo, boardingUnitKey]);
 
-  // sdd/trip-options-upgrade 2.1: filas de abordaje (≤3) por parada de subida.
-  const boardingArrivals = useMemo(() => {
-    if (!resolvedTrip?.boardingStopId) return [];
-    return TransportService.getLlegadasPorParada(resolvedTrip.boardingStopId, positions);
-  }, [resolvedTrip, positions]);
-
-  const boardingOptions = useMemo(() => {
-    if (!selectedTrip) return [];
-    return buildBoardingOptions(selectedTrip, boardingArrivals);
-  }, [selectedTrip, boardingArrivals]);
-
   const boardingHeroLive = useMemo(
     () => boardingHeroLabel(expectedArrival),
     [expectedArrival],
@@ -347,17 +378,7 @@ export default function TransportesAppPage() {
   // Latch: once ARRIBANDO fires it holds through GPS jitter until PASSED.
   // Resets only when the trip leg changes (boarding stop or vehicle key).
   // rAF-deferred setState per repo convention (no sync setState in effects).
-  const [latchedArriving, setLatchedArriving] = useState(false);
-  // Boarding dwell → transfer → riding (sdd/trip-arrival-alert follow-up):
-  // without these, the next-bus resolver below swaps to a new incoming bus on
-  // the very first tick past the stop and the transfer animation is skipped.
-  // `arrivedAtMs` timestamps the first epsilon hit so ARRIBANDO holds a few
-  // seconds (boarding simulation) even on projection jumps. `onboard` freezes
-  // the resolver while the user rides 1–2 stops glued to the bus; `rideStops`
-  // counts dwelling stops visited after boarding.
-  const [arrivedAtMs, setArrivedAtMs] = useState<number | null>(null);
-  const [onboard, setOnboard] = useState<{ vehicleKey: string; boardedAtMs: number; lineaNumero: string; unitId: string } | null>(null);
-  const [rideStops, setRideStops] = useState<string[]>([]);
+// Estados de arribo y abordaje reubicados al tope con los demás useState para evitar TDZ en useMemo
   const arrivalResetKey = `${resolvedTrip?.boardingStopId ?? '-'}|${selectedVehiculo ? `${selectedVehiculo.lineId}-${selectedVehiculo.unitId}` : '-'}`;
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -421,8 +442,10 @@ export default function TransportesAppPage() {
   // identity (línea/coche) is snapshotted here so the PASSED/VIAJANDO card keeps
   // rendering from the latch even if the feed ETA for the passed stop drops.
   // rAF-deferred.
+  // Boarding: solo si el usuario indicó intención de abordaje (isWaitingToBoard o isBoarded)
   useEffect(() => {
     if (onboard || arrivalPhase !== 'PASSED' || !selectedVehiculo) return;
+    if (!isWaitingToBoard && !isBoarded) return; // Si no apretó "Subirme al próximo", no se sube; sigue en parada
     const vehicleKey = `${selectedVehiculo.lineId}-${selectedVehiculo.unitId}`;
     const boardedAtMs = Date.now();
     const lineaNumero = expectedArrival?.lineaNumero ?? selectedVehicleInfo?.linea?.numero ?? selectedVehiculo.lineId.replace("line-", "");
@@ -432,7 +455,7 @@ export default function TransportesAppPage() {
       setRideStops([]);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [onboard, arrivalPhase, selectedVehiculo, expectedArrival, selectedVehicleInfo]);
+  }, [onboard, arrivalPhase, selectedVehiculo, expectedArrival, selectedVehicleInfo, isWaitingToBoard, isBoarded]);
 
   // Riding stop counter: each dwell at a stop past the boarding stop is one
   // stop ridden. The mock engine reports isDwelling + currentStopId at 1 Hz.
@@ -450,28 +473,24 @@ export default function TransportesAppPage() {
   // loops back to waiting — latch + ride clear so the resolver picks the next
   // incoming bus as it does today. `nowMs` re-fires this every GPS tick while
   // onboard, so the timeout fallback can't stall. rAF-deferred.
-  useEffect(() => {
-    if (!onboard) return;
-    if (!hasCompletedRide(rideStops.length, nowMs - onboard.boardedAtMs)) return;
-    const frame = window.requestAnimationFrame(() => {
-      setOnboard(null);
-      setLatchedArriving(false);
-      setArrivedAtMs(null);
-      setRideStops([]);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [onboard, rideStops, nowMs]);
+  // Ride release: el viaje se mantiene continuo hasta que el usuario decida salir con la X
+  // (Regla C / grill-me decision). Desactivado el reseteo artificial a las 2 paradas
+  // para permitir la simulación completa sin loops falsos.
+  // useEffect(() => {
+  //   if (!onboard) return;
+  //   if (!hasCompletedRide(rideStops.length, nowMs - onboard.boardedAtMs)) return;
+  //   const frame = window.requestAnimationFrame(() => {
+  //     setOnboard(null);
+  //     setLatchedArriving(false);
+  //     setArrivedAtMs(null);
+  //     setRideStops([]);
+  //   });
+  //   return () => window.cancelAnimationFrame(frame);
+  // }, [onboard, rideStops, nowMs]);
 
-  // User glued to the bus while onboard: mirror the bus position into the
-  // simulated user location every GPS tick. rAF-deferred per repo convention.
-  useEffect(() => {
-    if (!onboard || !selectedVehiculo) return;
-    const { lat, lng } = selectedVehiculo;
-    const frame = window.requestAnimationFrame(() => {
-      setUserLocation({ lat, lng });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [onboard, selectedVehiculo]);
+  // User glued to the bus while onboard: desactivado a pedido del usuario para evitar
+  // que el puck azul tape el ícono y modelo 3D del colectivo en modo viaje.
+  // Se repensará la lógica de simulación de pasajero a bordo en una etapa posterior.
 
   // Countdown minutes for the white card: mismo valor que la fila de abordaje y
   // el hero (`getLlegadas.minutos`) para que el número no quede desparejo entre
@@ -530,10 +549,12 @@ export default function TransportesAppPage() {
 
   const effectiveHighlightLines = useMemo(() => {
     if (isTripMode) {
-      return tripViewVisible && selectedTrip ? selectedTrip.highlightLines : [];
+      // En Modo Viaje NUNCA pintar la línea entera de 38km del mapa general;
+      // la traza oficial y universal del viaje es tripSegments (origen a destino exacto)
+      return [];
     }
     return regularHighlightLines;
-  }, [isTripMode, tripViewVisible, selectedTrip, regularHighlightLines]);
+  }, [isTripMode, regularHighlightLines]);
 
   const plannerPoints: PlannerMapPoints | null = useMemo(() => {
     if (!isTripViewActive) return null;
@@ -570,8 +591,6 @@ export default function TransportesAppPage() {
   const lastFocusKeyRef = useRef<string | null>(null);
 
   const focusRequest: MapFocusRequest | null = useMemo(() => {
-    if (!isTripMode) return null;
-
     if (customFocus) {
       return {
         ...customFocus,
@@ -579,6 +598,8 @@ export default function TransportesAppPage() {
         bottomPadding: customFocus.bottomPadding ?? tripBottomPadding,
       };
     }
+
+    if (!isTripMode) return null;
 
     if (!selectedTrip) {
       // Sin trip aún: volar al punto más reciente elegido (origen/destino)
@@ -709,7 +730,19 @@ export default function TransportesAppPage() {
     setVehiclePin({ lineId: vehicle.lineId, unitId: vehicle.unitId, forTripKey: tripKey });
     setSelectedLineaId(vehicle.lineId);
     setSelectedRamalId(vehicle.ramalId || null);
-    setCameraMode("follow-trip");
+    setIsTripPanoramaActive(false);
+
+    // Si seleccionó una unidad diferente a la que estaba a bordo, resetear abordaje
+    // para habilitar "Iniciar viaje" en la nueva unidad seleccionada
+    if (onboard?.unitId !== vehicle.unitId) {
+      setOnboard(null);
+      setIsBoarded(false);
+      setIsWaitingToBoard(false);
+      setLatchedArriving(false);
+      setArrivedAtMs(null);
+    }
+
+    setCameraMode("follow-vehicle");
     setTripReframeNonce((n) => n + 1);
   }, [positions, tripKey]);
 
@@ -784,6 +817,9 @@ export default function TransportesAppPage() {
     setBoardingUnitKey(null);
     setCustomFocus(null);
     setCameraMode("overview");
+    setIsWaitingToBoard(false);
+    setIsBoarded(false);
+    setIsTripPanoramaActive(false);
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", "/mapas");
     }
@@ -867,7 +903,7 @@ export default function TransportesAppPage() {
   // manuales no pasan por este resolver (handleBusSelect hace setState
   // directo), así que la intención explícita del usuario sigue funcionando.
   useEffect(() => {
-    if (onboard || latchedArriving) return;
+    if (onboard || latchedArriving || isWaitingToBoard || isBoarded) return;
     if (!resolvedTrip?.boardingStopId || !resolvedTrip.lineId || positions.length === 0) return;
     const pin = vehiclePin && vehiclePin.forTripKey === resolvedTrip.key ? vehiclePin : null;
     if (pin && pin.unitId === MANUAL_NONE_UNIT) return; // descarte explícito del usuario
@@ -877,19 +913,19 @@ export default function TransportesAppPage() {
     // esto, la fila other-line quedaba fuera del filtro por línea, el target caía
     // a la llegada más próxima y el mapa elegía el colectivo equivocado.
     if (boardingUnitKey) {
-      const stopArrivals = TransportService.getLlegadasPorParada(resolvedTrip.boardingStopId, positions);
-      const tapped = stopArrivals.find((a) => boardingUnitKeyOf(a.lineaId, a.interno) === boardingUnitKey);
-      if (!tapped) return; // sin telemetría aún: se resuelve cuando llegue el feed
-      if (selectedVehiculo?.lineId === tapped.lineaId && selectedVehiculo?.unitId === tapped.interno) return;
-      const tappedVehicle = positions.find((p) => p.lineId === tapped.lineaId && p.unitId === tapped.interno);
-      if (!tappedVehicle) return;
-      const tappedFrame = window.requestAnimationFrame(() => {
-        setSelectedVehiculo(tappedVehicle);
-        setSelectedLineaId(tappedVehicle.lineId);
-        setSelectedRamalId(tappedVehicle.ramalId || null);
-        if (tripViewVisible && !activeStepId) setCameraMode(resolvedTrip.boardingStopId ? "follow-trip" : "follow-vehicle");
-      });
-      return () => window.cancelAnimationFrame(tappedFrame);
+      const sep = boardingUnitKey.lastIndexOf("-");
+      const bLineId = sep > 0 ? boardingUnitKey.slice(0, sep) : boardingUnitKey;
+      const bUnitId = sep > 0 ? boardingUnitKey.slice(sep + 1) : boardingUnitKey;
+      const targetVehicle = positions.find((p) => p.lineId === bLineId && p.unitId === bUnitId);
+      if (targetVehicle && (selectedVehiculo?.lineId !== targetVehicle.lineId || selectedVehiculo?.unitId !== targetVehicle.unitId)) {
+        const frame = window.requestAnimationFrame(() => {
+          setSelectedVehiculo(targetVehicle);
+          setSelectedLineaId(targetVehicle.lineId);
+          setSelectedRamalId(targetVehicle.ramalId || null);
+        });
+        return () => window.cancelAnimationFrame(frame);
+      }
+      return; // La unidad explícita del usuario es sagrada: nunca caer a arrivals[0]
     }
 
     const arrivals = TransportService.getLlegadasPorParada(
@@ -916,7 +952,7 @@ export default function TransportesAppPage() {
       if (!activeStepId) setCameraMode(resolvedTrip.boardingStopId ? "follow-trip" : "follow-vehicle");
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [resolvedTrip, positions, vehiclePin, tripSeed, tripViewVisible, selectedVehiculo, onboard, latchedArriving, boardingUnitKey, activeStepId]);
+  }, [resolvedTrip, positions, vehiclePin, tripSeed, tripViewVisible, selectedVehiculo, onboard, latchedArriving, isWaitingToBoard, isBoarded, boardingUnitKey, activeStepId]);
 
   // Resuelve el foco de llegada legacy: con el feed ya cargado, elige la unidad
   // con ETA más próxima de la línea en esa parada y la sigue (pill + cámara).
@@ -1003,21 +1039,81 @@ export default function TransportesAppPage() {
         [lng - 0.002, lat - 0.002],
         [lng + 0.002, lat + 0.002],
       ];
-      setCustomFocusNonce((n) => {
-        const next = n + 1;
-        setCustomFocus({
-          bounds,
-          nonce: next,
-          pitch: 58,
-          maxZoom: 16.5,
-        });
-        return next;
+      const nextNonce = Date.now();
+      setCustomFocus({
+        bounds,
+        nonce: nextNonce,
+        pitch: 58,
+        maxZoom: 16.5,
       });
+      setCustomFocusNonce(nextNonce);
       if (isTripMode && tripViewVisible) {
         setCameraMode("step-focus");
       }
     }
   }, [resolvedTrip, selectedTrip, originLocation, isTripMode, tripViewVisible]);
+
+  // Simulación de abordaje: centrar la cámara en el punto medio entre el próximo coche y la parada de espera
+  const handleStartBoardingSimulation = useCallback(() => {
+    setIsWaitingToBoard(true);
+    setIsBoarded(false);
+    setTrip3D(true);
+
+    let originLng: number | undefined;
+    let originLat: number | undefined;
+    if (resolvedTrip?.boardingStopId) {
+      const s = TripPlannerService.getStopById(resolvedTrip.boardingStopId);
+      originLng = s?.lng;
+      originLat = s?.lat;
+    } else if (originLocation) {
+      originLng = originLocation.lng;
+      originLat = originLocation.lat;
+    }
+
+    if (originLng !== undefined && originLat !== undefined && selectedVehiculo) {
+      const padLng = Math.max(Math.abs(selectedVehiculo.lng - originLng) * 0.25, 0.002);
+      const padLat = Math.max(Math.abs(selectedVehiculo.lat - originLat) * 0.25, 0.002);
+      const minLng = Math.min(selectedVehiculo.lng, originLng) - padLng;
+      const maxLng = Math.max(selectedVehiculo.lng, originLng) + padLng;
+      const minLat = Math.min(selectedVehiculo.lat, originLat) - padLat;
+      const maxLat = Math.max(selectedVehiculo.lat, originLat) + padLat;
+
+      const nextNonce = Date.now();
+      setCustomFocus({
+        bounds: [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        nonce: nextNonce,
+        pitch: 48,
+        maxZoom: 16.5,
+        bottomPadding: 200,
+      });
+      setCustomFocusNonce(nextNonce);
+      setCameraMode("follow-trip");
+      setTripReframeNonce((n) => n + 1);
+    } else {
+      handleFocusOriginStop();
+    }
+  }, [resolvedTrip, originLocation, selectedVehiculo, handleFocusOriginStop]);
+
+  // Acople automático de cámara cuando el coche reanuda la marcha saliendo de la parada
+  useEffect(() => {
+    if (!isWaitingToBoard) return;
+    const isDeparted =
+      arrivalPhase === "PASSED" ||
+      arrivalPhase === "VIAJANDO_GREEN" ||
+      arrivalPhase === "VIAJANDO_YELLOW" ||
+      onboard !== null;
+
+    if (isDeparted && selectedVehiculo) {
+      setIsWaitingToBoard(false);
+      setIsBoarded(true);
+      setTrip3D(true);
+      setCameraMode("follow-vehicle");
+      setTripReframeNonce((n) => n + 1);
+    }
+  }, [isWaitingToBoard, arrivalPhase, onboard, selectedVehiculo]);
 
   const handleFocusDestinationStop = useCallback(() => {
     let lng: number | undefined;
@@ -1110,10 +1206,80 @@ export default function TransportesAppPage() {
     }
   }, [selectedVehiculo, followTripStop, isTripMode]);
 
+  const handleCameraModeChange = useCallback((mode: CameraMode) => {
+    setCameraMode(mode);
+    if (mode === "free") {
+      setIsTripPanoramaActive(false);
+    }
+  }, []);
+
+  // Acción inteligente de la Rosa en Modo Viaje:
+  // 1. Si la cámara está descolocada (modo free por arrastre con el dedo): Recentrar en 3D al coche/parada.
+  // 2. Si ya está en foco 3D: Pasar a Panorama 2D de ruta completa (de origen a destino).
+  // 3. Si está en Panorama 2D: Regresar al foco 3D en primera persona del coche/parada.
   const handleToggleTripView = useCallback(() => {
-    if (tripViewVisible) handleExitTripView();
-    else handleEnterTripView();
-  }, [tripViewVisible, handleExitTripView, handleEnterTripView]);
+    if (!isTripMode) {
+      if (tripViewVisible) handleExitTripView();
+      else handleEnterTripView();
+      return;
+    }
+
+    // Caso 1: Cámara descolocada (modo free por arrastre táctil manual con el dedo)
+    if (cameraMode === "free") {
+      setIsTripPanoramaActive(false);
+      setCustomFocus(null);
+      if (isWaitingToBoard && !onboard) {
+        handleFocusOriginStop();
+      } else if (selectedVehiculo) {
+        setCameraMode("follow-vehicle");
+        setTripReframeNonce((n) => n + 1);
+      }
+      return;
+    }
+
+    // Caso 2: La cámara está en Panorama 2D -> Volver a seguir al coche seleccionado
+    if (isTripPanoramaActive) {
+      setIsTripPanoramaActive(false);
+      setCustomFocus(null);
+      if (isWaitingToBoard && !onboard) {
+        handleFocusOriginStop();
+      } else if (selectedVehiculo) {
+        setCameraMode("follow-vehicle");
+        setTripReframeNonce((n) => n + 1);
+      }
+      return;
+    }
+
+    // Caso 3: Elevar al Panorama 2D ceñido exclusivamente de inicio a fin del viaje
+    if (selectedTrip) {
+      const targetBounds = getTripStartEndBounds(selectedTrip);
+      const nextNonce = Date.now();
+      setIsTripPanoramaActive(true);
+      setIsTripPanelCollapsed(true);
+      setCustomFocus({
+        bounds: targetBounds,
+        nonce: nextNonce,
+        pitch: 0,
+        bearing: 0,
+        bottomPadding: 85,
+        minZoom: 13.85,
+      });
+      setCustomFocusNonce(nextNonce);
+      setCameraMode("step-focus");
+      return;
+    }
+  }, [
+    isTripMode,
+    cameraMode,
+    isTripPanoramaActive,
+    isWaitingToBoard,
+    onboard,
+    selectedTrip,
+    tripViewVisible,
+    handleExitTripView,
+    handleEnterTripView,
+    handleFocusOriginStop,
+  ]);
 
   const handleToggleLineMenu = useCallback(() => {
     setIsLineMenuOpen((prev) => !prev);
@@ -1228,6 +1394,7 @@ export default function TransportesAppPage() {
 
   const handleBusSelect = useCallback((pos: VehiclePosition | null) => {
     if (!pos) {
+      if (isTripMode) return; // En Modo Viaje los clics vacíos están blindados y no descartan el vehículo
       // Descarte explícito: no re-resolver hasta que cambie el viaje.
       setVehiclePin({ lineId: "", unitId: MANUAL_NONE_UNIT, forTripKey: tripKey });
       setSelectedVehiculo(null);
@@ -1256,19 +1423,14 @@ export default function TransportesAppPage() {
   const handleToggle3D = useCallback(() => {
     if (isTripMode) {
       setTrip3D((v) => !v);
-      // El toggle cambia la pose, pero no debe depender de que la cámara siga
-      // actualmente en follow: un drag o una parada seleccionada pueden dejarla
-      // en free/overview. Reafirmamos el contexto vigente sin limpiar nada.
-      if (activeStepId) {
-        setCameraMode("step-focus");
-        setStepFocusNonce((n) => n + 1);
-        return;
+      if (selectedVehiculo) {
+        setCameraMode("follow-vehicle");
+        setTripReframeNonce((n) => n + 1);
       }
-      setCameraMode(followTripStop ? "follow-trip" : "follow-vehicle");
       return;
     }
     setCameraMode((prev) => (prev === "navigation-vehicle" ? "follow-vehicle" : "navigation-vehicle"));
-  }, [isTripMode, activeStepId, followTripStop]);
+  }, [isTripMode, selectedVehiculo]);
 
   const handleResetCamera = useCallback(() => {
     setSelectedLineaId("line-65");
@@ -1454,7 +1616,7 @@ export default function TransportesAppPage() {
               stopFocusNonce={stopFocusNonce}
               selectedKey={selectedKey}
               cameraMode={cameraMode}
-              onCameraModeChange={setCameraMode}
+              onCameraModeChange={handleCameraModeChange}
               trip3D={isTripMode ? trip3D : false}
               followTripStop={followTripStop}
               cameraBottomPadding={isTripMode ? tripBottomPadding : selectedParada ? 360 : 140}
@@ -1470,19 +1632,18 @@ export default function TransportesAppPage() {
               tripPulseActive={arrivalPhase === 'VIAJANDO_GREEN' || arrivalPhase === 'VIAJANDO_YELLOW'}
               pickMode={Boolean(mapPickTarget)}
               onMapPick={handleMapPick}
-              userLocation={userLocation}
+              userLocation={isTripMode ? null : userLocation}
               className="w-full h-full"
             />
           </div>
 
-          {isTripViewActive && isTripHeaderCollapsed && resolvedTrip && selectedVehiculo && (expectedArrival || onboard || arrivalPhase !== 'NORMAL') && cardLineaNumero && cardUnitId && (
+          {isTripViewActive && resolvedTrip && selectedVehiculo && (expectedArrival || onboard || arrivalPhase !== 'NORMAL') && cardLineaNumero && cardUnitId && (
             <ArrivalStatusCard
               phase={arrivalPhase}
               minutes={arrivalMinutes}
               lineNumber={cardLineaNumero}
               unitId={cardUnitId}
               nextStopName={selectedVehicleInfo?.nextStopName ?? undefined}
-              onDismiss={handleExitTripView}
             />
           )}
           {/* Controles Flotantes en el Mapa */}
@@ -1510,22 +1671,34 @@ export default function TransportesAppPage() {
               </button>
             )}
 
-            <button
-              onClick={() => {
-                setUserLocation((prev) =>
-                  prev ? null : { lat: SIMULATED_USER_LOCATION.lat, lng: SIMULATED_USER_LOCATION.lng }
-                );
-              }}
-              title={userLocation ? "Desactivar mi ubicación simulada" : "Activar mi ubicación simulada (Parque Centenario)"}
-              aria-label="Alternar mi posición simulada"
-              className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
-                userLocation
-                  ? "bg-primary text-primary-foreground border-primary font-medium"
-                  : "bg-canvas/95 text-text-muted border-hairline hover:bg-canvas-soft"
-              }`}
-            >
-              <Navigation className={`w-4 h-4 ${userLocation ? "fill-current" : ""}`} />
-            </button>
+            {!isTripMode && (
+              <button
+                onClick={() => {
+                  setUserLocation({ lat: SIMULATED_USER_LOCATION.lat, lng: SIMULATED_USER_LOCATION.lng });
+                  const nextNonce = customFocusNonce + 1;
+                  setCustomFocusNonce(nextNonce);
+                  setCustomFocus({
+                    bounds: [
+                      [SIMULATED_USER_LOCATION.lng - 0.0025, SIMULATED_USER_LOCATION.lat - 0.0025],
+                      [SIMULATED_USER_LOCATION.lng + 0.0025, SIMULATED_USER_LOCATION.lat + 0.0025],
+                    ],
+                    nonce: nextNonce,
+                    maxZoom: 16.5,
+                    pitch: 0,
+                    bearing: 0,
+                  });
+                }}
+                title="Centrar en Parque Centenario"
+                aria-label="Centrar en Parque Centenario"
+                className={`w-10 h-10 rounded-full border flex items-center justify-center active:scale-95 transition-all ${
+                  userLocation
+                    ? "bg-primary text-primary-foreground border-primary font-medium"
+                    : "bg-canvas/95 text-text-muted border-hairline hover:bg-canvas-soft"
+                }`}
+              >
+                <Navigation className={`w-4 h-4 ${userLocation ? "fill-current" : ""}`} />
+              </button>
+            )}
           </div>
 
           {/* Panel de Viaje o Burbuja Flotante según el modo activo */}
@@ -1550,6 +1723,9 @@ export default function TransportesAppPage() {
               onFocusOriginStop={handleFocusOriginStop}
               onFocusDestinationStop={handleFocusDestinationStop}
               onFocusTripOverview={handleFocusTripOverview}
+              isWaitingToBoard={isWaitingToBoard}
+              isBoarded={isBoarded}
+              onStartBoardingSimulation={handleStartBoardingSimulation}
             />
           ) : (
             <LiveTransportBubble

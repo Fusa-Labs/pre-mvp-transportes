@@ -1,50 +1,58 @@
 # Grill Me Results
 
-Generated: 2026-09-30T04:04:16.923Z
+Generated: 2026-09-30T07:08:30.575Z
 
 ## Plan
 
-Es que no sé por dónde empezar, ya que esta barra superior existe tanto por dentro como por fuera del modo viaje. Y nosotros actualmente estamos tratando todo lo relacionado al modo viaje. Así que no estoy seguro si las modificaciones que tenemos o que yo te puedo proponer hacer respecto a esta barra superior las debemos aplicar en general o solamente en el modo viaje. Por ejemplo, estructura de esta barra superior, texto que aparece en esta barra superior y cosas así. Incluso tamaño o ubicación en la zona superior de dicha barra. ¿Vos qué opinás? Gracias.
+Y te aseguraste de que no quede código huérfano respecto a esto, ¿verdad? Ahora quiero que uses cuatro queries de EXA para investigar la mejor forma limpia, simple, pero efectiva de establecer esta simulación en donde el pasajero se sube al coche y la cámara sigue al coche. La idea es la siguiente. Yo soy un pasajero que está en la parada y utilizando la aplicación, específicamente en esta maqueta, tengo que encontrar una opción que me dé a entender que si la acepto o la presiono, es porque me voy a subir al próximo colectivo que llegue, en este caso, a la parada del Parque Centenario. ¿Entendés? Y de tal manera, como yo estoy simulando de que el próximo coche que llegue a la parada del Parque Centenario yo me subo al mismo, entonces, ni bien arranque el coche desde la parada del Parque Centenario, la cámara comienza a seguir a dicho coche hasta que llega a Barrancas de Belgrano, que es el ejemplo para esta tarjeta de historial de paradas. ¿Me explico?
 
 ## Shared Understanding
 
-Acuerdo para el rediseño superior de Modo Viaje: sistema de dos cápsulas separadas (Origen con banderita verde + GPS / Destino con banderita a cuadros + GPS), flecha de inversión de sentido y preservación de conexiones peatonales.
+Definido el flujo completo de simulación de abordaje para la maqueta: el pasajero indica su intención de subir en el nodo de origen de la pestaña Recorrido; la cámara permanece fija en la parada de Parque Centenario esperando al coche, y en cuanto el vehículo arranca desde la parada, la cámara se acopla automáticamente en seguimiento 3D hasta Barrancas de Belgrano, con salida manual vía botón 'X'.
 
 ## Questions and Answers
 
-### 1. ¿Dónde preferís enfocar las modificaciones de la barra superior?
+### 1. ¿Dónde y con qué formato te gustaría que el usuario encuentre la acción para indicar que se va a subir al próximo colectivo? (Recomendado: Botón principal en el panel inferior, siguiendo el patrón de Google Maps e iOS Lockscreen)
 
-**Recommended answer:** 1. Exclusivo para Modo Viaje (Recomendado)
+**Recommended answer:** Botón principal en el panel inferior (Recomendado)
 
-**User answer:** 1. Exclusivo para Modo Viaje (Recomendado)
-
-**Status:** resolved
-
-**Notes:** El rediseño se circunscribe estrictamente a la experiencia del Modo Viaje ('ViajeHeader'), dejando el mapa libre exterior intacto.
-
-### 2. Estando en Modo Viaje, ¿qué estructura visual te parece más clara y cómoda para la parte superior?
-
-**Recommended answer:** 1. Cápsula compacta con botón de salida (← Origen → Destino) (Recomendado)
-
-**User answer:** Me interesa la opción 2 pero con modificaciones y estas son que sean dos cápsulas separadas en donde la cápsula superior tenga como ícono la banderita verde y el nombre de la parada, desde donde se inicia. Y en la cápsula de abajo, separada de la de arriba, que diga el nombre de la parada final. Y a su izquierda, la banderita blanca y negra de llegada. Dentro de cada cápsula, a la derecha del texto de las paradas, un ícono de GPS que se utilizará para posicionar un team específico para que el modo viaje registre el inicio y el fin de este recorrido que obviamente si no es sobre la parada de inicio o sobre la parada hacia donde voy conecte a ese pin con una línea recta hacia cada parada, haciendo entender que ese recorrido se hará a pie. ¿Me explico? Y luego la flechita doble hacia arriba y hacia abajo que intercambiará la parada de inicio con la parada final. Y por ende los textos también se intercambiarán. Si estaba abajo, una parada y presiona esa flechita, aparecerá en la cápsula de arriba y la de arriba aparecerá en la cápsula de abajo. Armate una lista de tareas para no perder el scope. Gracias.
+**User answer:** Botón en el nodo de origen del Recorrido
 
 **Status:** resolved
 
-**Notes:** Diseño de dos cápsulas flotantes desacopladas: superior con banderita verde + parada origen + GPS; inferior con banderita a cuadros + parada destino + GPS; flecha doble para invertir sentidos y trazado peatonal de conexión a pie si el GPS no está en la parada física.
+**Notes:** El usuario eligió ubicar la acción en la tarjeta/nodo de origen de la pestaña Recorrido.
+
+### 2. Cuando el usuario presiona que se va a subir, ¿cómo debe comportarse la cámara y la simulación hasta que el coche parte de Parque Centenario? (Recomendado: Cámara fija en la parada simulando al pasajero en el andén, y en cuanto el coche arranca se engancha en seguimiento 3D)
+
+**Recommended answer:** Cámara fija en la parada esperando, y se engancha al arrancar (Recomendado)
+
+**User answer:** Cámara fija en la parada esperando, y se engancha al arrancar (Recomendado)
+
+**Status:** resolved
+
+**Notes:** La cámara permanece estática en la parada de Parque Centenario simulando al pasajero en el andén, y en cuanto el coche parte de la parada se acopla al seguimiento 3D del vehículo.
+
+### 3. ¿Qué debe ocurrir cuando el colectivo finalmente llega a la parada de destino (Barrancas de Belgrano)? (Recomendado: Detención con aviso de llegada 'Llegaste a tu destino' y opción clara de finalizar viaje)
+
+**Recommended answer:** Detención en destino con aviso de llegada y cierre de viaje (Recomendado)
+
+**User answer:** Salida manual con el botón de cierre X
+
+**Status:** resolved
+
+**Notes:** Al llegar a Barrancas de Belgrano el viaje no se cierra solo; el usuario conserva el control y sale manualmente con la 'X'.
 
 ## Agreed Decisions
 
-- Aislar las modificaciones de la cabecera superior exclusivamente al Modo Viaje ('ViajeHeader'), sin modificar la barra de búsqueda del mapa libre.
-- Diseñar la cabecera de Modo Viaje con dos cápsulas redondeadas independientes:
-- Cápsula Superior (Origen): Banderita verde a la izquierda, nombre de la parada de inicio en el centro, botón de GPS a la derecha.
-- Cápsula Inferior (Destino): Banderita a cuadros de meta a la izquierda, nombre de la parada de destino en el centro, botón de GPS a la derecha.
-- Incorporar el botón de flecha bidireccional (ArrowUpDown) que invierte instantáneamente el origen y el destino con recálculo dinámico del recorrido.
-- Conservar y conectar el sistema de ruteo peatonal (piernas 'walk') cuando el pin del GPS se sitúe fuera de la parada física de ascenso o descenso.
+- El CTA de abordaje se ubica en el nodo de origen ('Subir en: Parque Centenario') dentro de la pestaña Recorrido.
+- Al confirmar abordaje, la cámara se queda fija en la parada de Parque Centenario esperando al coche como un pasajero en el andén.
+- Cuando el coche reanuda la marcha saliendo de la parada tras el dwell time, la cámara se acopla automáticamente al seguimiento 3D del vehículo.
+- La cámara acompaña al colectivo hasta Barrancas de Belgrano; la finalización del viaje se mantiene en control manual del usuario mediante el botón 'X'.
 
 ## Open Risks
 
-- Asegurarse de que el botón de cerrar/salir del modo viaje (X) siga teniendo un lugar intuitivo o accesible (por ejemplo a la derecha de la botonera o en el encabezado general).
+- Verificar que el tiempo de dwell (20s) no impaciente al evaluador; evaluar si conviene mostrar un indicador visual o cuenta regresiva de 'Abordando coche en parada...'.
 
 ## Next Decision Needed
 
-Armar la lista de tareas en `todo` y comenzar la implementación de la nueva estructura de dos cápsulas en `ViajeHeader.tsx`.
+Proceder con la implementación técnica del botón de abordaje en el nodo de origen de Recorrido y la lógica de transición de cámara (espera en andén -> acople al arrancar).

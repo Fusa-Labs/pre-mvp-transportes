@@ -1,4 +1,4 @@
-# Resumen de Correcciones y Mejoras — Rama `feat/fase2-clean`
+# Resumen de Correcciones y Mejoras — Ramas `feat/fase2-clean` y `feat/fase3-clean`
 
 Documento consolidado de todas las correcciones, refactorizaciones y mejoras de experiencia de usuario aplicadas a la demo interactiva de transporte público (Líneas 65 y 194), a partir de la rama base del PR #5 (`adrian-fase2-A`).
 
@@ -14,173 +14,82 @@ Documento consolidado de todas las correcciones, refactorizaciones y mejoras de 
 
 ---
 
-## 2. Infraestructura y Nueva Rama de Trabajo
-* **Rama `feat/fase2-clean`:** Creada directamente desde el último commit de `adrian-fase2-A` y sincronizada en GitHub (`origin/feat/fase2-clean`).
-* **Soporte LAN móvil en Next.js (`next.config.ts`):** Configurado `allowedDevOrigins: ['192.168.2.2', '192.168.2.2:3000']` para permitir la prueba fluida en celulares sobre la red Wi-Fi sin bloqueos de HMR ni fuentes.
+## 2. Infraestructura y Ramas de Trabajo
+* **Rama `feat/fase2-clean`:** Creada y preservada como checkpoint estable histórico en el commit `6272686` (`origin/feat/fase2-clean`), desplegada en paralelo en el puerto `3001` con árbol hardlinkeado de `node_modules` para evitar panics de Turbopack.
+* **Rama `feat/fase3-clean`:** Rama de desarrollo activa (`origin/feat/fase3-clean`), desplegada en el puerto `3000` accesible desde LAN en `http://192.168.2.2:3000/inicio`.
+* **Soporte LAN móvil en Next.js (`next.config.ts`):** Configurado `allowedDevOrigins: ['192.168.2.2', '192.168.2.2:3000', '192.168.2.2:3001']` y mapeo por `netsh portproxy` en Windows.
 
 ---
 
 ## 3. Pantalla de Inicio (`/inicio`)
 
 ### Cabecera Superior Institucional (Bienvenida a la Red Metropol):
-* Eliminados el saludo *"Hola 👋"*, la fecha y el icono suelto de la rosa.
+* Eliminados el saludo *"Hola "*, la fecha y el icono suelto de la rosa.
 * **Texto de bienvenida:** Frase `"Bienvenido a la Red"` en tipografía delgada y estilizada (`font-normal`, `text-[21px]`).
 * **Color adaptativo según el tema:**
   * Modo claro: azul marino institucional exacto (`text-[#1b2a51]`), idéntico al logo.
   * Modo oscuro: blanco puro (`dark:text-white`) con alto contraste sobre fondo negro.
 * **Rosa oficial de Metropol:** Componente oficial `MetropolRose variant="full"` (`h-7.5 w-auto`) con pétalos rojos (`#E30613`) y tallo verde (`#228135`), idéntica a la rosa central de la barra inferior.
-* **Wordmark "Logo Solo Metropol":** Importado desde Descargas de Windows (`logo solo metropol.png`), recortado de padding transparente y optimizado con variante blanca para fondo oscuro (`logo-solo-metropol-white.png`) con escala ampliada a `h-6.5`.
+* **Wordmark "Logo Solo Metropol":** Importado desde Descargas de Windows (`logo solo metropol.png`), optimizado con variante blanca para fondo oscuro (`logo-solo-metropol-white.png`) con escala ampliada a `h-6.5`.
 
-### Historial de Paradas (Tarjetas compactas y ordenadas):
-* **Columna izquierda:** Burbuja de línea oficial (`LineBadge`, 65 o 194).
-* **Columna central:** Trayecto claro en dos líneas:
-  * `Desde: [Parada de origen]`
-  * `Hacia: [Parada de destino]`
-* **Columna derecha (Badges apilados):**
-  * Badge de arribo en vivo: `Llega en X min` / `En parada` con pulso verde.
-  * Badge de retraso: `X min de retraso` con alerta ámbar titilante.
-* Formato compacto (`px-3.5 py-2.5`, sin líneas divisorias internas innecesarias).
-* **Hook modular de demoras (`src/hooks/use-intermittent-delay.ts`):** Simulación desacoplada que calcula y rota demoras entre 2 y 9 minutos de forma controlada cada 8 segundos, sin ensuciar la vista ni generar problemas de hidratación en React.
+### Historial de Paradas (Aislamiento de la tarjeta piloto limpia):
+* **Filtro estricto de tarjetas:** Ocultadas temporalmente las dos tarjetas de la Línea 194 y la tarjeta de la 65 desde Constitución.
+* **Única tarjeta activa:** Queda visible **exclusivamente la primera tarjeta oficial de prueba**:  
+  **`Línea 65 · Desde: Parque Centenario ➔ Hacia: Barrancas de Belgrano`**  
+  Esto garantiza evaluar el flujo 100% pulido sin interferencia de datos secundarios.
 
 ### Sección Alertas:
-* Eliminados los botones *"Ver"* y *"Ver todas"*.
-* Tarjeta 100% estática e informativa sin modales emergentes.
-* Agregado badge informativo: `"Hace 2hs"`.
-
-### Bottom Navigation Bar:
-* Eliminada la animación de pulso y resplandor violeta en el botón de la rosa (`rutaba-rose-glow`, `rutaba-rose-btn`).
-* Corregido el conflicto en `globals.css` donde `.rutaba-rose-trip-morph` sobrescribía el `-translate-x-1/2` de Tailwind, garantizando un centrado perfecto inamovible en `/inicio`, `/mapas` y modo viaje.
+* Agregadas **tres alertas de servicio activas** (2 para la Línea 194 y 1 para la Línea 65) con tarjetas apiladas similares:
+  1. *Demora en la línea 194:* "Servicio con demoras por obras en el corredor Panamericana. Tiempos de espera más largos en ambos sentidos." (Hace 2hs).
+  2. *Demora en la línea 65:* "Servicio con demoras de 10 a 15 min por congestión en Av. Díaz Vélez hacia Barrancas de Belgrano." (Hace 15min).
+  3. *Demora en ramales Zárate y Campana (Línea 194):* "Tránsito lento en peaje Zárate por reducción de calzada. Tiempos de espera más largos en ambos sentidos." (Hace 45min).
 
 ---
 
-## 4. Barra de Búsqueda — Enfoque de Maqueta y Diagnóstico UX
+## 4. Modo Viaje y Experiencia de Navegación (`/mapas`)
 
-### Síntesis de la Investigación (EXA) y Diagnóstico de UX
+### Cápsulas Superiores Gemelas (`ViajeHeader`):
+* **Íconos de ubicación con marcas cardinales:** Reemplazados los viejos pins por el ícono **`Crosshair`** (con sus marcas de Norte, Sur, Este y Oeste, idéntico al del cartel de fijar origen en el mapa).
+* **Color blanco unificado:** Ambos íconos son blancos puros (`dark:text-white`), erradicando el color verde del origen.
 
-Tras analizar los patrones de Material Design 3, los estudios de caso de apps de transporte (Transit App, NextStop, Omnie) y las metodologías de prototipado de alta fidelidad para presentaciones ante inversores y clientes (Selleo / Atomic Object), la conclusión clave es unánime:
+### Toast de Estado de Viaje (`ArrivalStatusCard`):
+* **Forma y tamaño 100% idénticos a las cápsulas:** Reciclada la anatomía de las cápsulas (`rounded-full px-3 py-1.5`, contenedor `max-w-md mx-auto`, ícono `w-5`, botón de cierre `×` a la derecha y espaciador `w-8` para alinearse con los botones laterales).
+* **Colores dinámicos:**
+  * Al aproximarse a la parada (`ARRIBANDO`): Cápsula en **ámbar cálido** (`bg-amber-500 border-amber-400 text-white`) con ícono de colectivo animado.
+  * Al iniciar viaje (`VIAJE INICIADO`): Cápsula en **verde esmeralda** (`bg-emerald-600 border-emerald-500 text-white`) con ícono `CheckCircle2`.
+* Contador ininterrumpido de 10 segundos continuos.
 
-> El mayor riesgo en una demo ante stakeholders es el input libre: si el cliente teclea la esquina de su casa o una calle arbitraria y la app no responde o muestra "0 resultados", la maqueta da sensación de "rota" en lugar de "en desarrollo".
->
-> En prototipos de alta fidelidad donde el backend de geocodificación global está fuera del alcance, la práctica estándar es mantener la presencia visual de la barra (para preservar el realismo del producto final) pero blindar la interacción, guiando al evaluador hacia las rutas y paradas donde la experiencia está 100% pulida y garantizada.
+### Cartografía y Renderizado de Trazas (`MapCanvas`):
+* **Erradicación de contornos blancos (casing):** Capa `route-casing` y `trip-seg-casing` fijadas con opacidad 0. Todas las líneas del mapa son líneas limpias y sólidas sin rebordes blancos.
+* **Erradicación del color rojo en la Línea 65:** Suprimido el switch que pintaba de rojo (`#EF4444`) a los colectivos de vuelta. Todos los coches y badges de la Línea 65 son celestes oficiales (`#0EA5E9`).
+* **Traza azul opaco previa (`tripRouteShade`):** Derivación matemática universal con `shadeHex(shade.color, -0.42)` que genera un tono azul petróleo elegante para el tramo previo sin colores fijos.
+* **Supresión de la línea general en Modo Viaje:** En Modo Viaje se fuerza `effectiveHighlightLines = []` para que nunca se dibuje la traza general de 38 km desde Constitución hasta Barrancas, mostrando exclusivamente la traza de viaje `tripSegments`.
 
-### ¿Cómo funciona la barra de búsqueda ahora en la maqueta?
+### Convoy de 3 Coches y Flujo Continuo:
+* **Renderizado estricto del convoy:** En Modo Viaje solo se muestran las 3 unidades de `boardingOptions` (ej. 62, 58, 55).
+* **Inmediatez de demo:** El Coche 62 arranca a ~240m (~50s) de Parque Centenario.
+* **Eliminado el reseteo artificial a 2 paradas (`RIDING_STOPS = 2`):** El viaje continúa sin loops falsos hasta que el usuario sale manualmente con la `X`.
+* **Botón `Iniciar viaje`:** Renombrado desde "Subirme al próximo" en el timeline de la parada de origen.
+* **Cámara de coche en alternativas:** Distancia calibrada a ~100-110 metros (`zoom: 17.1`, `pitch: 52°`), ofreciendo un encuadre amplio y cómodo de la calle.
 
-1. **Aspecto visual 100% realista:**  
-   * Mantiene el contenedor redondeado, el placeholder coloquial **`"Buscá tu parada"`** y el botón circular con la **lupa** a la derecha (reemplazando la flecha hacia arriba).
-   * El input está configurado en modo protegido (`readOnly`) para que en celulares **no abra el teclado virtual** innecesariamente.
-
-2. **Interacción con aviso flotante (Toast de Maqueta):**  
-   * Al tocar cualquier parte de la barra o la lupa, se despliega suavemente un **toast flotante** con efecto *glassmorphism* justo debajo:
-     * **Título:** *"Búsqueda completa de direcciones disponible en el lanzamiento final"*
-     * **Mensaje:** *"Para probar esta maqueta interactiva, seleccioná uno de los recorridos simulados en el **Historial de paradas** debajo."*
-     * Incluye un botón **`X`** para cerrarlo al instante, y además **desaparece solo tras 4.5 segundos**.
-
-3. **Beneficio para la presentación con clientes / stakeholders:**  
-   * Protege la demo: nadie se queda frustrado tipeando una dirección que la maqueta no tiene mapeada.
-   * Deja en claro que la búsqueda global de direcciones es una feature del producto final, mientras guía al usuario con naturalidad hacia los viajes que sí están 100% interactivos y simulados en vivo.
-
----
-
-## 5. Modo Viaje — Modal Minimizado (`/mapas`)
-* **Apertura colapsada por defecto:** Al tocar una tarjeta del Historial, el modal arranca minimizado a solo 68px de altura, permitiendo al usuario apreciar el mapa y la unidad en 3D de inmediato.
-* **Barra minimizada:**
-  * Estructura: `[ 65 ] Coche 62 [● Arribando / Llega en X min]    Recorrido  ↑`
-  * Burbuja de línea 100% circular (`w-6 h-6 rounded-full`).
-  * Eliminada la barra vertical separadora.
-  * Ocultas las pestañas y el botón de cierre `X` en vista colapsada.
-* **Ergonomía:** Despliegue táctil con tap en toda la barra, en la flecha o mediante gesto de deslizamiento (swipe hacia arriba).
+### Interacción y Máquina de Estados de la Rosa (`BottomNav`):
+* **Erradicado el contorno naranja:** Aplicadas clases `outline-none focus:outline-none focus:ring-0 focus-visible:outline-none select-none [-webkit-tap-highlight-color:transparent]`.
+* **Blindaje contra recargas:** `event.preventDefault()` incondicional en `/mapas` y eliminación de la trampa del doble tap.
+* **Máquina de estados:**
+  * Si la cámara se descoloca por arrastre manual: un tap recentra al coche/parada.
+  * Si está siguiendo al coche: un tap se eleva a Panorama 2D ceñido entre Parque Centenario y Barrancas (`minZoom: 13.85`).
+  * Si está en Panorama 2D: un tap vuelve a bajar a 3D detrás del coche.
 
 ---
 
-## 6. Modo Viaje — Modal Desplegado y Pestañas
-* **Cabecera superior sincronizada:**
-  * Muestra la identidad completa del colectivo activo: `[ 65 ] Coche 62 [● Arribando]` a la izquierda.
-  * Eliminado el texto redundante `"X alternativas"`.
-  * Eliminados la flecha hacia abajo y el botón `X` para mantener limpia la zona superior (el cierre/colapso se realiza con el grip hacia abajo).
-* **Pestaña "Recorrido" (Predeterminada al abrir):**
-  * Renombrada desde *"Pasos"* a **`Recorrido`**, ubicada como **primera pestaña** a la izquierda.
-  * Reestructurada como **Línea de Tiempo Continua (Linear Timeline)** inspirada en Google Maps y Moovit:
-    * **Nodo de Subida:** Banderita verde vectorial + `Subir en: [Parada de origen]`.
-    * **Tramo Central:** Línea vertical con el color oficial de la línea, tarjeta estilizada y compacta con burbuja de línea, ramal, `~X min de viaje` y cantidad de paradas fijas.
-    * **Nodo de Bajada:** Banderita a cuadros de meta vectorial + `Bajar en: [Parada de destino]`.
-  * Eliminados textos redundantes triplicados y falsos pasos de caminata al bajar del colectivo.
-  * Eliminado el enlace redundante *"Ver otras alternativas"* al pie de la lista.
-* **Pestaña "Otras alternativas":**
-  * Ubicada como segunda pestaña a la derecha.
-  * Lista de colectivos en camino con burbujas circulares y badges de estado unificados.
-  * Eliminada por completo la tarjeta resumen duplicada (`~10 min directo · Línea 65...`).
-  * Semántica posicional estricta: solo el segundo coche lleva la etiqueta `"· siguiente"` (Coche 1 = `"· más próximo"`, Coche 3+ = limpio sin repeticiones).
-  * Selección reactiva: al tocar cualquier coche de la lista, el encabezado superior y la cámara del mapa se sincronizan instantáneamente.
-  * Altura contenida: el modal se ajusta a su contenido (`max-h-[320px]`), eliminando espacios vacíos y liberando la vista del mapa.
+## 5. Tareas Pendientes (Backlog Inmediato)
 
----
+Las siguientes tareas fueron identificadas para su resolución prioritaria:
 
-## 7. Navegación de Cámara 3D y Señalización en el Mapa
-* **Interacción desde la subpestaña Recorrido:**
-  * Tap en *"Subir en"*: la cámara vuela suavemente en 3D (`pitch: 58`, `zoom: 16.5`) a la parada de origen.
-  * Tap en *"Bajar en"*: la cámara vuela suavemente en 3D (`pitch: 58`, `zoom: 16.5`) a la parada de destino.
-  * Tap en la tarjeta central del colectivo: encuadra el recorrido completo en pantalla (`fitBounds`).
-* **Señalización cartográfica limpia:**
-  * Descartadas las banderas sobre el mapa para evitar superposiciones y saturación visual.
-  * Señalización con nodos circulares nítidos (verde para origen, rojo para destino) y nombres de paradas ubicados limpiamente arriba con halo blanco. Las banderitas vectoriales se conservan como hitos visuales dentro del modal de Recorrido.
-* **Limpieza de controles cartográficos:**
-  * Ocultado el botón flotante de capas (`LineSelectorBar`) al ingresar en Modo Viaje (`!isTripMode`).
-  * Eliminado por completo el botón lateral de la flecha circular (`RotateCcw` / recentrar en Metropol) en todas las vistas de `/mapas`.
+1. **Tarea Pendiente 1 — Lógica del botón "Invertir origen y destino":**  
+   * **Ubicación:** Botón circular con ícono `ArrowUpDown`, situado en la sección superior de `/mapas` en la columna lateral de acciones, justo al lado de la cápsula de origen.
+   * **Objetivo:** Corregir y completar la lógica de inversión para que al tocarlo se intercambien los puntos de origen y destino del viaje, recalculando automáticamente la ruta, el sentido de circulación (ida/vuelta), las paradas de referencia y la reasignación de flota correspondiente sin romper el estado activo de navegación.
 
----
-
-## 8. Transformación de ArrivalStatusCard en Alerta Superior Efímera (Heads-Up Alert)
-
-### Justificación de Investigación UX
-
-Tras consultar la documentación oficial de Google Navigation SDK, las guías de Android Auto, los estudios de interacción de Citymapper (iOS 16 Lock Screen Navigation / Dynamic Island) y los análisis de eficiencia de Google Maps:
-
- 1. La regla de oro de la navegación (Single Source of Truth):
-    Google Navigation SDK y Android Auto establecen que la información de tiempo y estado del vehículo debe concentrarse en un solo
-    contenedor inferior persistente (Travel Estimate Card / Bottom Sheet). Tener tarjetas fijas arriba y abajo al mismo tiempo genera el
-    efecto sándwich, satura el campo visual y reduce la visibilidad de la trayectoria del mapa en más de un 40%.
- 2. El rol exclusivo de las alertas superiores (Heads-Up Alerts):
-    Las guías de Android Auto señalan explícitamente: "Don't use floating alerts to show primary navigation information... Use alerts
-    only for non-distracting, event-based notifications". Es decir, las tarjetas superiores no deben ser fijas: su verdadero valor
-    reside en actuar como alertas momentáneas que aparecen únicamente ante un evento crítico (por ejemplo, cuando el vehículo está
-    entrando a la parada o al iniciar el trayecto) y luego se retiran solas.
-
-### Detalle de Implementación
-* Desactivada la persistencia del toast durante la navegación regular.
-* Se activa únicamente de forma transitoria ante eventos clave del viaje:
-  * **Alerta de arribo a parada:** Al llegar a la parada y pasar al estado crítico de arribo (`¡Atención en parada! ARRIBANDO · Línea X`).
-  * **Alerta de viaje iniciado:** Cuando el coche empieza su viaje desde la parada, desplegando un toast de color verde esmeralda con el texto `'Viaje iniciado'` y `'Línea X · Coche Y'`.
-* Auto-cierre aumentado a 10 segundos (en vez de 6 segundos) o mediante botón de cruz manual (sin cancelar el viaje).
-* Limpieza de controles cartográficos previa: botón de capas oculto en Modo Viaje y botón de flecha circular RotateCcw eliminado.
-
----
-
-## 9. Rediseño Superior de Modo Viaje (`ViajeHeader`) — Dos Cápsulas Simétricas e Informativas
-* **Layout de Dos Cápsulas Separadas:**
-  * **Cápsula 1 (Superior / Origen):** Banderita verde vectorial a la izquierda + Nombre de la parada de inicio en el centro + Botón de fijar pin en el mapa a la derecha.
-  * **Cápsula 2 (Inferior / Destino):** Banderita a cuadros blanca y negra a la izquierda + Nombre de la parada final en el centro + Mismo botón de fijar pin en el mapa a la derecha.
-* **Naturaleza 100% Informativa:**
-  * Las cápsulas no admiten entrada de texto ni despliegan teclado en dispositivos móviles. Reflejan estrictamente el trayecto seleccionado desde el Historial de paradas de Inicio.
-* **Simetría Visual:**
-  * Ambos botones de fijar punto en el mapa utilizan exactamente el mismo ícono (`MapPin`).
-  * Se removió el botón duplicado de detección GPS de la cápsula de origen para lograr balance visual perfecto.
-* **Botón de Inversión de Sentido (`ArrowUpDown`):**
-  * Situado en la botonera lateral. Con un solo tap intercambia el origen con el destino (tanto en texto como en coordenadas geográficas), recalculando el viaje en sentido opuesto de forma reactiva.
-* **Conexión de Ruteo Peatonal:**
-  * Si el usuario sitúa un pin fuera de la parada física, el motor calcula y visualiza automáticamente las piernas a pie (`accessWalk` y `egressWalk`) con líneas punteadas y tiempos estimados de caminata.
-
----
-
-## 10. Optimización de Rendimiento y Carga de MapLibre en `/mapas`
-* **Limpieza de Source Maps Inexistentes:**
-  * Eliminadas las directivas de depuración `sourceMappingURL` en los archivos compilados de `public/maplibre/*.mjs`.
-  * Se eliminaron los requests 404 recurrentes que tardaban entre 2 y 5 segundos bloqueando los hilos de red en el servidor de desarrollo, restaurando la fluidez y velocidad de carga del mapa.
-* **Filtrado Estricto de Paradas de Recorrido (`route-stops`):**
-  * Sincronizadas las capas `route-stops` y `route-stops-label` bajo la regla `HIDE_ALL_ROUTES` para que no se muestren paradas fijas de rutas de fondo a menos que el usuario seleccione explícitamente una línea desde el selector de capas.
-
----
-
-## 11. Corrección de Consola y Estabilidad Next.js 16 (React 19)
-* **Fix Script Tag en `src/app/layout.tsx`:** Reemplazado `<Script strategy="beforeInteractive">` dentro de `<head>` por un tag `<script dangerouslySetInnerHTML={{ __html: themeInitScript }} />` estándar de React 19, erradicando el error de consola de cliente.
-* **Configuración de `metadataBase`:** Resuelta la advertencia de resolución de URLs relativas para OpenGraph.
-* **Verificación de calidad:** Build de producción 100% verde (`next build`), suite de pruebas del planificador de viaje (`trip-planner-service.spec.ts`) y asistente de intents pasando con 0 errores.
+2. **Tarea Pendiente 2 — Lógica completa de la pestaña "Líneas":**  
+   * **Ubicación:** Pestaña "Líneas" situada en la `BottomNav` (a la izquierda de la Rosa central).
+   * **Objetivo:** Corregir integralmente la lógica de apertura, filtrado por línea/ramal, sincronización con el mapa, selección de unidades y cierre del selector de líneas, asegurando que su interacción sea predecible, no interfiera con el Modo Viaje y permita explorar cualquier línea del catálogo sin desconfigurar la aplicación.

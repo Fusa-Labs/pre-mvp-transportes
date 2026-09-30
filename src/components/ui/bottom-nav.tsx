@@ -52,35 +52,31 @@ export function BottomNav({
   const dark = resolvedTheme === 'dark';
 
   const handleRoseClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    const now = Date.now();
-    const isDouble = now - lastTapRef.current < DOUBLE_TAP_MS;
-    lastTapRef.current = now;
-
-    if (!isDouble) {
-      // En /mapas con viaje activo, un toque alterna la vista del viaje
-      // (sin perder el estado); si no, navega normal al mapa.
-      if (onMap && tripToggleActive && onToggleTripView) {
-        event.preventDefault();
+    // Si ya estamos en /mapas, NUNCA permitir navegación por defecto (evita resets y recargas)
+    if (onMap) {
+      event.preventDefault();
+      if (tripToggleActive && onToggleTripView) {
         onToggleTripView();
+        return;
+      }
+      if (onActivateTripMode) {
+        onActivateTripMode();
+        return;
       }
       return;
     }
 
-    event.preventDefault();
-    lastTapRef.current = 0;
+    // Fuera de /mapas: navegación normal a /mapas o doble tap para Modo Viaje directo
+    const now = Date.now();
+    const isDouble = now - lastTapRef.current < DOUBLE_TAP_MS;
+    lastTapRef.current = now;
 
-    if (onActivateTripMode) {
-      onActivateTripMode();
+    if (isDouble) {
+      event.preventDefault();
+      lastTapRef.current = 0;
+      router.push('/mapas?trip=1');
       return;
     }
-
-    // Fuera de /mapas: pedir Modo Viaje vía query (idempotente si ya estamos en mapa)
-    if (onMap) return;
-    const base = pathname.replace(/[?&]trip=1/g, '').replace(/\?$/, '');
-    const next = base.includes('?')
-      ? `${base}&${TRIP_QUERY}`
-      : `${base}?${TRIP_QUERY}`;
-    router.push(next);
   };
 
   return (
@@ -143,7 +139,7 @@ export function BottomNav({
             data-active={mapaActive}
             onClick={handleRoseClick}
             className={cn(
-              'absolute left-1/2 -translate-x-1/2 -top-3.5 z-10 flex flex-col items-center justify-center w-[56px] h-[56px] rounded-full shadow-md active:scale-95 transition-transform duration-200 touch-manipulation',
+              'absolute left-1/2 -translate-x-1/2 -top-3.5 z-10 flex flex-col items-center justify-center w-[56px] h-[56px] rounded-full shadow-md active:scale-95 transition-transform duration-200 touch-manipulation outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 select-none [-webkit-tap-highlight-color:transparent]',
               dark ? 'bg-[#1D2B4F] ring-4 ring-[#1D2B4F]' : 'bg-white ring-4 ring-white',
             )}
             aria-label={onMap && tripToggleActive ? "Mostrar u ocultar la vista del viaje. Doble toque para abrir Modo Viaje" : "Ir al mapa. Doble toque para abrir Modo Viaje"}

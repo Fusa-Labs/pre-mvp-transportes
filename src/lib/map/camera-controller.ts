@@ -35,11 +35,10 @@ export type VehicleCameraInput = Pick<VehiclePosition, 'lat' | 'lng' | 'heading'
 export function vehicleCameraFrame(
   position: VehicleCameraInput,
   mode: Extract<CameraMode, 'follow-vehicle' | 'navigation-vehicle'>,
+  is3D = false,
 ): VehicleCameraFrame {
-  if (mode === 'follow-vehicle') {
-    // Seguimiento 2D (regla de producto: el 3D ES SOLO el CTA explícito
-    // "Seguir colectivo en 3D"). Norte arriba, sin pitch, marco liviano
-    // que muestra el bus y el contexto de su recorrido.
+  if (mode === 'follow-vehicle' && !is3D) {
+    // Seguimiento 2D clásico: norte arriba, sin pitch
     return {
       center: pointAhead(position, 12),
       zoom: 15.2,
@@ -48,10 +47,11 @@ export function vehicleCameraFrame(
     };
   }
 
-  const lookAheadMeters = Math.min(70, Math.max(32, position.speed * 1.8));
+  // Vista 3D al doble de distancia (~100-110 metros, zoom 17.1, pitch 52°):
+  // encuadre amplio de la calle con el colectivo centrado mirando en la dirección del recorrido
   return {
-    center: pointAhead(position, lookAheadMeters),
-    zoom: position.speed > 35 ? 16.5 : 16.9,
+    center: pointAhead(position, 12),
+    zoom: 17.1,
     pitch: 52,
     bearing: position.heading,
   };

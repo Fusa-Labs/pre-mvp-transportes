@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ArrivalPhase } from "@/lib/trip-map-navigation";
+import { Bus, CheckCircle2 } from "lucide-react";
 
 interface ArrivalStatusCardProps {
   phase: ArrivalPhase;
@@ -18,16 +19,11 @@ const HAPTIC_BY_PHASE: Partial<Record<ArrivalPhase, number | number[]>> = {
   VIAJANDO_GREEN: 18,
 };
 
-function RollingDuration({ value }: { value: number }) {
-  return (
-    <span aria-label={`${value} minutos`} className="arrival-rolling-duration">
-      <span className="arrival-rolling-duration__value">{value}</span>
-      <span aria-hidden="true" className="arrival-rolling-duration__unit"> min</span>
-    </span>
-  );
-}
-
-/** Alerta Heads-Up efímera: emerge al entrar a ARRIBANDO o al iniciar viaje (PASSED / VIAJANDO) y se auto-cierra tras 10s */
+/**
+ * Toast efímera de estado de viaje (10 segundos):
+ * Recicla con exactitud la forma, altura y dimensiones de las cápsulas superiores de origen y destino,
+ * con colores dinámicos según el estado del colectivo respecto a la parada (arribando en ámbar vs viaje iniciado en esmeralda).
+ */
 export default function ArrivalStatusCard({
   phase,
   minutes: _minutes,
@@ -37,105 +33,101 @@ export default function ArrivalStatusCard({
   onDismiss,
 }: ArrivalStatusCardProps) {
   const [visible, setVisible] = useState(false);
-  const previousPhaseRef = useRef<ArrivalPhase>(phase);
+  const currentGroupRef = useRef<string | null>(null);
   const previousUnitRef = useRef<string>(unitId);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isArriving = phase === "ARRIBANDO";
   const isTripStarted = phase === "PASSED" || phase === "VIAJANDO_GREEN" || phase === "VIAJANDO_YELLOW";
+  const activeAlertGroup = isArriving ? "arribando" : isTripStarted ? "viaje-iniciado" : null;
 
   useEffect(() => {
-    // Si la fase es ARRIBANDO o viaje iniciado (PASSED / VIAJANDO_GREEN / VIAJANDO_YELLOW)
-    if (isArriving || isTripStarted) {
-      const phaseChanged = previousPhaseRef.current !== phase;
-      const unitChanged = previousUnitRef.current !== unitId;
-      const wasTripStarted =
-        previousPhaseRef.current === "PASSED" ||
-        previousPhaseRef.current === "VIAJANDO_GREEN" ||
-        previousPhaseRef.current === "VIAJANDO_YELLOW";
-
-      // Disparar si cambió la fase (ej: de normal a arribando, o de arribando a viaje iniciado), o cambió la unidad
-      if ((isArriving && (phaseChanged || unitChanged)) || (isTripStarted && (!wasTripStarted || unitChanged))) {
-        setVisible(true);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        // Auto-ocultar a los 10 segundos
-        timerRef.current = setTimeout(() => {
-          setVisible(false);
-        }, 10000);
-
-        const pattern = HAPTIC_BY_PHASE[phase];
-        if (pattern && typeof navigator !== "undefined" && "vibrate" in navigator) {
-          navigator.vibrate(pattern);
-        }
-      }
-    } else {
+    if (!activeAlertGroup) {
       setVisible(false);
+      currentGroupRef.current = null;
       if (timerRef.current) clearTimeout(timerRef.current);
+      return;
     }
 
-    previousPhaseRef.current = phase;
-    previousUnitRef.current = unitId;
+    const isNewAlert = currentGroupRef.current !== activeAlertGroup || previousUnitRef.current !== unitId;
+    if (isNewAlert) {
+      currentGroupRef.current = activeAlertGroup;
+      previousUnitRef.current = unitId;
+      setVisible(true);
 
+      if (timerRef.current) clearTimeout(timerRef.current);
+      // Auto-ocultar a los 10 segundos exactos e ininterrumpidos
+      timerRef.current = setTimeout(() => {
+        setVisible(false);
+        currentGroupRef.current = null;
+      }, 10000);
+
+      const pattern = HAPTIC_BY_PHASE[phase];
+      if (pattern && typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate(pattern);
+      }
+    }
+  }, [activeAlertGroup, unitId, phase]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [phase, unitId, isArriving, isTripStarted]);
+  }, []);
 
   if (!visible || (!isArriving && !isTripStarted)) return null;
 
   const handleClose = () => {
     setVisible(false);
+    currentGroupRef.current = null;
     if (timerRef.current) clearTimeout(timerRef.current);
     onDismiss?.();
   };
 
   return (
-    <div className="absolute left-4 right-4 top-[calc(max(14px,env(safe-area-inset-top))+72px+var(--trip-stack-gap,0px))] z-30 mx-auto max-w-[320px] pointer-events-none animate-in fade-in slide-in-from-top-3 duration-300">
-      {isTripStarted ? (
+    <div className="absolute left-4 right-4 top-[calc(max(14px,env(safe-area-inset-top))+88px)] z-30 mx-auto max-w-md pointer-events-none animate-in fade-in slide-in-from-top-2 duration-300">
+      <div className="flex items-center gap-2 w-full">
+        {/* Cápsula gemela idéntica en forma y tamaño a las de origen y destino */}
         <div
           aria-live="polite"
           data-arrival-phase={phase}
-          className="pointer-events-auto relative mt-0 flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-2.5 shadow-xl bg-emerald-600 border-emerald-500 text-white"
+          className={"relative flex-1 flex items-center border rounded-full px-3 py-1.5 shadow-md pointer-events-auto transition-all " + (
+            isTripStarted
+              ? "bg-emerald-600 border-emerald-500 text-white shadow-emerald-950/20"
+              : "bg-amber-500 border-amber-400 text-white shadow-amber-950/20"
+          )}
         >
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
-              Línea {lineNumber} · Coche {unitId}
-            </p>
-            <p className="truncate text-sm font-black tracking-wide text-white">
-              Viaje iniciado
-            </p>
+          {/* Ícono a la izquierda con el mismo espacio métrico w-5 */}
+          <div className="w-5 flex justify-center shrink-0 mr-1.5">
+            {isTripStarted ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-100 shrink-0" />
+            ) : (
+              <Bus className="w-4 h-4 text-amber-100 shrink-0 animate-bounce" />
+            )}
           </div>
+
+          {/* Texto central en tipografía idéntica a las cápsulas */}
+          <span className="text-xs font-bold truncate flex-1 leading-tight select-none">
+            {isTripStarted
+              ? "Viaje iniciado · Línea " + lineNumber + " (Coche " + unitId + ")"
+              : "Arribando a parada · Línea " + lineNumber + " (Coche " + unitId + ")"}
+          </span>
+
+          {/* Botón de cierre dismiss integrado en el extremo derecho */}
           <button
             type="button"
             onClick={handleClose}
             title="Ocultar aviso"
-            aria-label="Ocultar aviso de viaje iniciado"
-            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 hover:bg-white/20 transition-colors text-white"
+            aria-label="Ocultar aviso"
+            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 ml-1.5 text-white/80 hover:text-white hover:bg-white/20 transition-colors active:scale-90"
           >
-            <span aria-hidden="true" className="text-base leading-none">×</span>
+            <span aria-hidden="true" className="text-sm font-bold leading-none">×</span>
           </button>
         </div>
-      ) : (
-        <div
-          aria-live="polite"
-          data-arrival-phase={phase}
-          className="arrival-card arrival-card--arribando pointer-events-auto relative mt-0 flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-2.5 shadow-xl"
-        >
-          <div className="min-w-0">
-            <p className="arrival-card__eyebrow">¡Atención en parada!</p>
-            <p className="truncate text-sm font-black tracking-wide">ARRIBANDO · Línea {lineNumber}</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            title="Ocultar aviso"
-            aria-label="Ocultar aviso de arribo"
-            className="arrival-card__dismiss w-6 h-6 rounded-full flex items-center justify-center shrink-0 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-          >
-            <span aria-hidden="true" className="text-base leading-none">×</span>
-          </button>
-        </div>
-      )}
+
+        {/* Espaciador lateral para respetar la columna de botones (Swap/X) y mantener la alineación perfecta */}
+        <div aria-hidden className="w-8 shrink-0" />
+      </div>
     </div>
   );
 }

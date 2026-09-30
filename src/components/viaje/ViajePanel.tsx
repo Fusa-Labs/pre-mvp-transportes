@@ -92,6 +92,9 @@ interface ViajePanelProps {
   onFocusOriginStop?: () => void;
   onFocusDestinationStop?: () => void;
   onFocusTripOverview?: () => void;
+  isWaitingToBoard?: boolean;
+  isBoarded?: boolean;
+  onStartBoardingSimulation?: () => void;
 }
 
 export default function ViajePanel({
@@ -113,6 +116,9 @@ export default function ViajePanel({
   onFocusOriginStop,
   onFocusDestinationStop,
   onFocusTripOverview,
+  isWaitingToBoard = false,
+  isBoarded = false,
+  onStartBoardingSimulation,
 }: ViajePanelProps) {
   // Diagnóstico de cobertura cuando no hay rutas: ¿qué lado falla?
   const coverageInfo = useMemo(() => {
@@ -655,25 +661,56 @@ export default function ViajePanel({
                   return (
                     <div key={`ride-leg-${rIdx}`} className="space-y-0.5">
                       {/* Nodo de subida ("Subir en") */}
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => onFocusOriginStop?.()}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onFocusOriginStop?.();
-                          }
-                        }}
-                        className="flex items-center gap-2.5 cursor-pointer active:scale-[0.99] hover:bg-canvas-soft/60 rounded-xl px-1.5 py-1 -mx-1.5 transition-all select-none group"
-                        title="Ver parada de subida en 3D"
-                      >
-                        <div className="w-5 flex justify-center shrink-0">
-                          <GreenFlagUiIcon className="w-4 h-4 shrink-0 group-hover:scale-110 transition-transform" />
+                      <div className="flex items-center justify-between gap-2 rounded-xl px-1.5 py-1 -mx-1.5 transition-all">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => onFocusOriginStop?.()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onFocusOriginStop?.();
+                            }
+                          }}
+                          className="flex items-center gap-2.5 cursor-pointer active:scale-[0.99] hover:bg-canvas-soft/60 rounded-lg py-0.5 px-1 -my-0.5 select-none group min-w-0"
+                          title="Ver parada de subida en 3D"
+                        >
+                          <div className="w-5 flex justify-center shrink-0">
+                            <GreenFlagUiIcon className="w-4 h-4 shrink-0 group-hover:scale-110 transition-transform" />
+                          </div>
+                          <p className="text-xs text-text-muted truncate leading-tight">
+                            Subir en: <span className="font-bold text-ink group-hover:text-primary transition-colors">{ride.fromStopName}</span>
+                          </p>
                         </div>
-                        <p className="text-xs text-text-muted truncate leading-tight">
-                          Subir en: <span className="font-bold text-ink group-hover:text-primary transition-colors">{ride.fromStopName}</span>
-                        </p>
+
+                        {/* Botón o Badge de Abordaje Simulado */}
+                        {rIdx === 0 && (
+                          <div className="shrink-0">
+                            {isBoarded ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                A bordo · Siguiendo
+                              </span>
+                            ) : isWaitingToBoard ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                Esperando en parada...
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onStartBoardingSimulation?.();
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 shadow-sm transition-all"
+                                title="Iniciar simulación de viaje en esta parada"
+                              >
+                                <span>Iniciar viaje</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Barra vertical de color oficial + Tarjeta de viaje en colectivo */}

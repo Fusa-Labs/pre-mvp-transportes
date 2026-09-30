@@ -1,4 +1,4 @@
-function shadeHex(hex: string, factor: number): string {
+export function shadeHex(hex: string, factor: number): string {
   const value = hex.replace('#', '');
   const channels = [0, 2, 4].map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16));
   const mix = (channel: number) => Math.round(

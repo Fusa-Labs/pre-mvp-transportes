@@ -90,30 +90,6 @@ const SEEDED_ROUTES: SeededRoute[] = [
     originLabel: 'Parque Centenario',
     destinationLabel: 'Barrancas de Belgrano',
   },
-  {
-    id: 'seed-65-constitucion-barrancas',
-    originStopId: 'stop-65-01',
-    destinationStopId: 'stop-65-09',
-    lineId: 'line-65',
-    originLabel: 'Plaza Constitución',
-    destinationLabel: 'Barrancas de Belgrano',
-  },
-  {
-    id: 'seed-194-once-escobar',
-    originStopId: 'stop-194-once',
-    destinationStopId: 'stop-194-escobar-estacion',
-    lineId: 'line-194',
-    originLabel: 'Terminal Once',
-    destinationLabel: 'Estación Escobar',
-  },
-  {
-    id: 'seed-194-once-zarate',
-    originStopId: 'stop-194-once',
-    destinationStopId: 'stop-194-zarate-transferencia',
-    lineId: 'line-194',
-    originLabel: 'Terminal Once',
-    destinationLabel: 'Zárate Centro',
-  },
 ];
 
 export default function HomePage() {
@@ -528,54 +504,58 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Alertas — primer incidente activo del catálogo */}
-        {(() => {
-          const firstAlert = ACTIVE_ALERTS[0];
-          const firstLine = firstAlert
-            ? MOCK_LINES.find((l) => l.id === firstAlert.lineId)
-            : null;
-          const AlertIcon =
-            firstAlert?.type === 'route_change' ? Route : AlertTriangle;
-          return (
-            <section className="mt-1 mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-[20px] font-semibold text-ink">
-                  Alertas
-                </h2>
-              </div>
-              {firstAlert && firstLine ? (
-                <div
-                  className="bg-canvas border border-hairline rounded-2xl p-4 flex items-start gap-3 shadow-sm"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-canvas-soft flex items-center justify-center flex-shrink-0">
-                    <AlertIcon className="w-5 h-5 text-[#d97706]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-sm font-semibold text-ink">
-                        {firstAlert.title}
-                      </p>
-                      <span className="px-2.5 py-0.5 rounded-full bg-canvas-soft border border-hairline text-text-muted text-xs font-medium shrink-0">
-                        Hace 2hs
-                      </span>
+        {/* Alertas oficiales de servicio */}
+        <section className="mt-1 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[20px] font-semibold text-ink">
+              Alertas
+            </h2>
+          </div>
+          {ACTIVE_ALERTS.length > 0 ? (
+            <div className="flex flex-col gap-2.5">
+              {ACTIVE_ALERTS.map((alert) => {
+                const line = MOCK_LINES.find((l) => l.id === alert.lineId);
+                const AlertIcon = alert.type === 'route_change' ? Route : AlertTriangle;
+                const timeAgo =
+                  alert.id === 'alert-65-002'
+                    ? 'Hace 15min'
+                    : alert.id === 'alert-194-003'
+                    ? 'Hace 45min'
+                    : 'Hace 2hs';
+                return (
+                  <div
+                    key={alert.id}
+                    className="bg-canvas border border-hairline rounded-2xl p-4 flex items-start gap-3 shadow-sm"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-canvas-soft flex items-center justify-center flex-shrink-0">
+                      <AlertIcon className="w-5 h-5 text-[#d97706]" />
                     </div>
-                    <p className="text-sm text-text-muted leading-snug">
-                      Línea {firstLine.shortName}: {firstAlert.description}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p className="text-sm font-semibold text-ink">
+                          {alert.title}
+                        </p>
+                        <span className="px-2.5 py-0.5 rounded-full bg-canvas-soft border border-hairline text-text-muted text-xs font-medium shrink-0">
+                          {timeAgo}
+                        </span>
+                      </div>
+                      <p className="text-sm text-text-muted leading-snug">
+                        Línea {line?.shortName ?? ''}: {alert.description}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="bg-canvas border border-hairline rounded-2xl p-4 flex items-center gap-3 shadow-sm">
-                  <CheckCircle2 className="w-5 h-5 text-[#16a34a]" />
-                  <p className="text-sm text-text-muted">
-                    Sin alertas activas — todas las líneas circulan con
-                    normalidad.
-                  </p>
-                </div>
-              )}
-            </section>
-          );
-        })()}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-canvas border border-hairline rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+              <CheckCircle2 className="w-5 h-5 text-[#16a34a]" />
+              <p className="text-sm text-text-muted">
+                Sin alertas activas — todas las líneas circulan con normalidad.
+              </p>
+            </div>
+          )}
+        </section>
       </main>
 
       {/* Hoja de respuesta del asistente: fija sobre el dock, con colapso por arrastre.
