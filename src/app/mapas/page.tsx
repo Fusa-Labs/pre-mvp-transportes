@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import DynamicMap from "@/components/map/DynamicMap";
 import LineSelectorBar, { getRamalLetter, getRamalDisplayName } from "@/components/ui-shell/LineSelectorBar";
-import LiveTransportBubble from "@/components/ui-shell/LiveTransportBubble";
+import LiveLineDiagram from "@/components/ui-shell/LiveLineDiagram";
 import { BottomNav } from "@/components/ui/bottom-nav";
 import ViajeHeader from "@/components/viaje/ViajeHeader";
 import ViajePanel from "@/components/viaje/ViajePanel";
@@ -12,7 +12,7 @@ import { TransportService } from "@/lib/services/transport-service";
 import { TripPlannerService } from "@/lib/services/trip-planner-service";
 import { subscribeToPositions } from "@/mock/live";
 import { MOCK_LINES, MOCK_ROUTES, MOCK_STOPS } from "@/mock/data";
-import { getRouteTrack, stopsAlongRoute, busProgressOn } from "@/lib/map/route-progress";
+import { getRouteTrack, stopsAlongRoute } from "@/lib/map/route-progress";
 import type { VehiclePosition } from "@/lib/data-service";
 import { segmentBearing, type CameraMode } from "@/lib/map/camera-controller";
 import type { MapFocusRequest, PlannerMapPoints, PlannerMapPulse, TripRouteShade } from "@/components/map/MapCanvas";
@@ -71,6 +71,7 @@ export default function TransportesAppPage() {
   const [positions, setPositions] = useState<VehiclePosition[]>([]);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedLineaId, setSelectedLineaId] = useState<string | null>(null);
+  const [exploreSentido, setExploreSentido] = useState<"ida" | "vuelta">("ida");
   const [selectedRamalId, setSelectedRamalId] = useState<string | null>(null);
   const [selectedParada, setSelectedParada] = useState<Parada | null>(null);
   const [stopFocusNonce, setStopFocusNonce] = useState(0);
@@ -211,10 +212,19 @@ export default function TransportesAppPage() {
   }, [resolvedTrip]);
 
   const regularHighlightLines = useMemo(() => {
-    if (selectedRamalId) return [selectedRamalId];
-    if (selectedLineaId) return [selectedLineaId];
-    return []; // Ocultas por defecto: trazas invisibles hasta que el usuario elija línea o ramal
-  }, [selectedLineaId, selectedRamalId]);
+    if (selectedRamalId) {
+      const ramalSentidoKey = `${selectedRamalId}-${exploreSentido}`;
+      if (MOCK_ROUTES[ramalSentidoKey]) return [ramalSentidoKey];
+      if (MOCK_ROUTES[selectedRamalId]) return [selectedRamalId];
+      return [selectedRamalId];
+    }
+    if (selectedLineaId) {
+      const sentidoKey = `${selectedLineaId}-${exploreSentido}`;
+      if (MOCK_ROUTES[sentidoKey]) return [sentidoKey];
+      return [selectedLineaId];
+    }
+    return [];
+  }, [selectedLineaId, selectedRamalId, exploreSentido]);
 
   // sdd/trip-options-upgrade 2.1: filas de abordaje (≤3) por parada de subida.
   const boardingArrivals = useMemo(() => {
@@ -244,10 +254,14 @@ export default function TransportesAppPage() {
       return positions.filter((p) => visibleKeys.has(`${p.lineId}-${p.unitId}`));
     }
     if (selectedRamalId) {
-      return positions.filter((p) => p.ramalId === selectedRamalId);
+      return positions.filter(
+        (p) => p.ramalId === selectedRamalId && (!p.direction || p.direction === exploreSentido)
+      );
     }
     if (selectedLineaId) {
-      return positions.filter((p) => p.lineId === selectedLineaId);
+      return positions.filter(
+        (p) => p.lineId === selectedLineaId && (!p.direction || p.direction === exploreSentido)
+      );
     }
     return [];
   }, [positions, resolvedTrip, boardingOptions, selectedVehiculo, boardingUnitKey, onboard, selectedRamalId, selectedLineaId]);
@@ -255,11 +269,6 @@ export default function TransportesAppPage() {
   const selectedKey = useMemo(() => {
     return selectedVehiculo ? `${selectedVehiculo.lineId}-${selectedVehiculo.unitId}` : null;
   }, [selectedVehiculo]);
-
-  const llegadas = useMemo(() => {
-    if (!selectedParada) return [];
-    return TransportService.getLlegadasPorParada(selectedParada.id, filteredPositions);
-  }, [selectedParada, filteredPositions]);
 
   const timelineStops = useMemo(() => {
     if (!selectedVehiculo) return [];
@@ -269,15 +278,6 @@ export default function TransportesAppPage() {
     if (!track) return [];
     const lineStops = MOCK_STOPS.filter((s) => s.lineIds.includes(selectedVehiculo.lineId));
     return stopsAlongRoute(track, lineStops);
-  }, [selectedVehiculo]);
-
-  const busProgress = useMemo(() => {
-    if (!selectedVehiculo) return 0;
-    const coords = MOCK_ROUTES[selectedVehiculo.lineId];
-    if (!coords || coords.length < 2) return 0;
-    const track = getRouteTrack(selectedVehiculo.lineId, coords);
-    if (!track) return 0;
-    return busProgressOn(track, { lng: selectedVehiculo.lng, lat: selectedVehiculo.lat });
   }, [selectedVehiculo]);
 
   const busAlongM = useMemo(() => {
@@ -786,15 +786,6 @@ export default function TransportesAppPage() {
     [mapPickTarget]
   );
 
-  const handleSwapPoints = useCallback(() => {
-    lastFocusKeyRef.current = null;
-    setBoardingPin(null);
-    setVehiclePin(null);
-    setBoardingUnitKey(null);
-    setOriginLocation(destinationLocation);
-    setDestinationLocation(originLocation);
-  }, [originLocation, destinationLocation]);
-
   const handleClearTripMode = useCallback(() => {
     setOriginLocation(null);
     setDestinationLocation(null);
@@ -820,6 +811,7 @@ export default function TransportesAppPage() {
     setIsWaitingToBoard(false);
     setIsBoarded(false);
     setIsTripPanoramaActive(false);
+    setIsLineMenuOpen(false);
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", "/mapas");
     }
@@ -846,6 +838,7 @@ export default function TransportesAppPage() {
    *  (evita salto de cámara al abrir el modal). */
   const handleOpenTripMode = useCallback(() => {
     setIsTripMode(true);
+    setIsLineMenuOpen(false);
     setTripViewVisible(true);
     setTrip3D(true);
     setOriginLocation((prev) => {
@@ -878,6 +871,7 @@ export default function TransportesAppPage() {
     const frame = window.requestAnimationFrame(() => {
       setTripSeed(request);
       setIsTripMode(true);
+      setIsLineMenuOpen(false);
       setTrip3D(true);
       setOriginLocation(origin);
       setDestinationLocation(destination);
@@ -1281,9 +1275,26 @@ export default function TransportesAppPage() {
     handleFocusOriginStop,
   ]);
 
-  const handleToggleLineMenu = useCallback(() => {
-    setIsLineMenuOpen((prev) => !prev);
+  const handleToggleExploreSentido = useCallback(() => {
+    setExploreSentido((prev) => (prev === "ida" ? "vuelta" : "ida"));
   }, []);
+
+  const handleSelectExploreLinea = useCallback((lineaId: string) => {
+    setSelectedLineaId(lineaId);
+    setSelectedRamalId(null);
+    setSelectedParada(null);
+  }, []);
+
+  const handleToggleLineMenu = useCallback(() => {
+    if (isTripMode) return;
+    setIsLineMenuOpen((prev) => {
+      const next = !prev;
+      if (next && !selectedLineaId) {
+        setSelectedLineaId("line-65");
+      }
+      return next;
+    });
+  }, [isTripMode, selectedLineaId]);
 
   const handleSelectParada = useCallback((parada: Parada) => {
     setSelectedParada(parada);
@@ -1471,7 +1482,6 @@ export default function TransportesAppPage() {
         destinationLocation={destinationLocation}
         onSelectOrigin={handleSelectOrigin}
         onSelectDestination={handleSelectDestination}
-        onSwapPoints={handleSwapPoints}
         onClose={handleCloseTripMode}
         onClear={handleClearTripMode}
         userSimulatedLocationName={SIMULATED_LOCATION_LABEL}
@@ -1728,23 +1738,20 @@ export default function TransportesAppPage() {
               onStartBoardingSimulation={handleStartBoardingSimulation}
             />
           ) : (
-            <LiveTransportBubble
+            <LiveLineDiagram
               isOpen={isLineMenuOpen}
               onClose={() => setIsLineMenuOpen(false)}
-              selectedLinea={selectedLinea}
-              selectedRamal={selectedRamal}
-              selectedParada={selectedParada}
-              paradas={paradas}
-              llegadas={llegadas}
-              alertas={alertas}
-              totalVehiculosActivos={filteredPositions.length}
+              selectedLineaId={selectedLineaId || "line-65"}
+              onSelectLineaId={handleSelectExploreLinea}
+              selectedRamalId={selectedRamalId}
+              onSelectRamalId={setSelectedRamalId}
+              sentido={exploreSentido}
+              onToggleSentido={handleToggleExploreSentido}
+              positions={positions}
+              selectedParadaId={selectedParada?.id}
               onSelectParada={handleSelectParada}
-              selectedVehiculo={selectedVehiculo}
-              cameraMode={cameraMode}
-              onToggle3D={selectedVehiculo ? handleToggle3D : undefined}
-              timelineStops={timelineStops}
-              busProgress={busProgress}
-              busAlongM={busAlongM}
+              selectedUnitId={selectedVehiculo?.unitId}
+              onSelectVehiculo={handleBusSelect}
             />
           )}
       </main>

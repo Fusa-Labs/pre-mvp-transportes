@@ -243,8 +243,7 @@ export interface MapCanvasProps {
  * Quedan visibles: trip-seg-*, planner-*, buildings3d, user-*, basemap.
  */
 const TRIP_FOCUS_HIDDEN_LAYERS = [
-  'route-arrows', 'route-casing', 'route-flow-head', 'route-flow-tail',
-  'route-halo-a', 'route-halo-b', 'route-line',
+  'route-arrows', 'route-line',
   'route-stops', 'route-stops-label', 'stops',
   'poi-icons', 'poi-labels', 'signal-icons', 'crossing-icons',
 ];
@@ -327,8 +326,6 @@ function clampFitPadding(
  * CLOCK_ORIGIN module-level → la fase arranca en la carga de la página,
  * no por instancia de mapa.
  */
-const PULSE_PERIOD_MS = 1800;
-const PULSE_ORIGIN = typeof performance !== 'undefined' ? performance.now() : 0;
 
 type Live = { lng: number; lat: number; heading: number; speed: number; timestamp: number };
 
@@ -1294,10 +1291,7 @@ export function MapCanvas({
     let lastRotateRefresh = 0;
     const scheduleRotateRefresh = () => {
       const now = performance.now();
-      if (tripPulseActiveRef.current && !reduceMotionRef.current && map.getLayer('trip-seg-pulse')) {
-        const tripPhase = Math.floor((now % (TRIP_FLOW_STEP_MS * TRIP_DASH.length)) / TRIP_FLOW_STEP_MS);
-        if (tripPhase !== lastTripFlowPhase) { lastTripFlowPhase = tripPhase; map.setPaintProperty('trip-seg-pulse', 'line-dasharray', TRIP_DASH[tripPhase]!); }
-      }
+
       if (now - lastRotateRefresh < 120) return;
       lastRotateRefresh = now;
       refreshVehicles();
@@ -1315,105 +1309,10 @@ export function MapCanvas({
     // constante → sin re-tessellation extra entre pasos. La estela
     // [k−5, k) termina exactamente donde empieza la cabeza → contacto
     // perfecto: se lee CORRIENTE, no puntos sueltos.
-    const DASH_HEAD: number[][] = [
-      [0, 0, 3, 9], [0, 1, 3, 8], [0, 2, 3, 7], [0, 3, 3, 6],
-      [0, 4, 3, 5], [0, 5, 3, 4], [0, 6, 3, 3], [0, 7, 3, 2],
-      [0, 8, 3, 1], [0, 9, 3, 0], [1, 9, 2, 0], [2, 9, 1, 0],
-    ];
-    const DASH_TAIL: number[][] = [
-      [0, 7, 5, 0], [1, 7, 4, 0], [2, 6, 4, 0], [3, 5, 4, 0],
-      [4, 4, 4, 0], [0, 0, 5, 7], [0, 1, 5, 6], [0, 2, 5, 5],
-      [0, 3, 5, 4], [0, 4, 5, 3], [0, 5, 5, 2], [0, 6, 5, 1],
-    ];
-    const FLOW_STEP_MS = 80;
-    const TRIP_FLOW_STEP_MS = 90;
-    const TRIP_DASH: number[][] = [[0, 0, 2, 8], [0, 1, 2, 7], [0, 2, 2, 6], [0, 3, 2, 5], [0, 4, 2, 4], [0, 5, 2, 3], [0, 6, 2, 2], [0, 7, 2, 1], [0, 8, 2, 0], [1, 8, 1, 0]];
-    let lastFlowPhase = -1;
-    let lastTripFlowPhase = -1;
-    const applyFlowPhase = (phase: number) => {
-      if (!map.getLayer('route-flow-head')) return;
-      map.setPaintProperty('route-flow-head', 'line-dasharray', DASH_HEAD[phase]!);
-      map.setPaintProperty('route-flow-tail', 'line-dasharray', DASH_TAIL[phase]!);
-    };
-    // Animación de flujo desactivada temporalmente a pedido del usuario (sin línea blanca segmentada)
-    const startFlow = () => {};
-    const stopFlow = () => {};
-
-    // ─── Pulso de ruta: Kick + Breathe (spec #861) ─────────
-    // RAF propio: solo corre con UNA línea en foco y pestaña visible.
-    // Kick 650ms easeOutCubic al ganar foco + breathe 1800ms en
-    // contrafase entre los 2 halos. Handoff continuo: el kick se SUMA
-    // al breathe, así nunca hay salto de valor.
-    const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
-    let kickStart = -Infinity;
-    let pulseRaf: number | null = null;
-    let pulseFocus = false;
-    const setHalo = (layerId: string, opacity: number, blur: number) => {
-      if (disposed || mapRef.current !== map || !map.getLayer(layerId)) return;
-      map.setPaintProperty(layerId, 'line-opacity', opacity);
-      map.setPaintProperty(layerId, 'line-blur', blur);
-    };
-    const pulseFrame = () => {
-      pulseRaf = null;
-      if (disposed) return;
-      const now = performance.now();
-      if (tripPulseActiveRef.current && !reduceMotionRef.current && map.getLayer('trip-seg-pulse')) {
-        const tripPhase = Math.floor((now % (TRIP_FLOW_STEP_MS * TRIP_DASH.length)) / TRIP_FLOW_STEP_MS);
-        if (tripPhase !== lastTripFlowPhase) { lastTripFlowPhase = tripPhase; map.setPaintProperty('trip-seg-pulse', 'line-dasharray', TRIP_DASH[tripPhase]!); }
-      }
-      const phase = (((now - PULSE_ORIGIN) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS) * Math.PI * 2;
-      const breatheA = 0.5 - 0.5 * Math.cos(phase);
-      const breatheB = 0.5 - 0.5 * Math.cos(phase + Math.PI);
-      const kick = 1 - easeOutCubic(Math.min(1, (now - kickStart) / 650));
-      // Breathe con amplitud reducida: las halos son el ESTADO (fondo
-      // que respira) y la corriente es la ACCIÓN — nunca compiten.
-      setHalo('route-halo-a', Math.min(0.6, 0.1 + 0.11 * breatheA + 0.35 * kick), 6 + 8 * (1 - breatheA));
-      setHalo('route-halo-b', Math.min(0.45, 0.08 + 0.09 * breatheB), 10 + 8 * (1 - breatheB));
-      // Corriente: escribiendo SOLO cuando cambia la fase (cada 80ms)
-      if (!reduceMotionRef.current) {
-        const flowPhase = Math.floor(((now - PULSE_ORIGIN) % (FLOW_STEP_MS * 12)) / FLOW_STEP_MS);
-        if (flowPhase !== lastFlowPhase) {
-          lastFlowPhase = flowPhase;
-          applyFlowPhase(flowPhase);
-        }
-      }
-      if (!document.hidden) pulseRaf = requestAnimationFrame(pulseFrame);
-    };
-    const stopPulse = () => {
-      if (disposed) return;
-      if (pulseRaf !== null) {
-        cancelAnimationFrame(pulseRaf);
-        pulseRaf = null;
-      }
-      setHalo('route-halo-a', 0, 6);
-      setHalo('route-halo-b', 0, 10);
-      if (map.getLayer('trip-seg-pulse')) map.setPaintProperty('trip-seg-pulse', 'line-opacity', 0);
-    };
-    const startPulse = () => {
-      if (map.getLayer('trip-seg-pulse')) map.setPaintProperty('trip-seg-pulse', 'line-opacity', tripPulseActiveRef.current ? 0.88 : 0);
-      if (pulsePausedRef.current) return;
-      if (reduceMotionRef.current) {
-        setHalo('route-halo-a', 0.16, 8);
-        setHalo('route-halo-b', 0.08, 12);
-        return;
-      }
-      if (pulseRaf === null && !disposed && !document.hidden) {
-        pulseRaf = requestAnimationFrame(pulseFrame);
-      }
-    };
-    const onVisibility = () => {
-      if (document.hidden) {
-        if (pulseRaf !== null) {
-          cancelAnimationFrame(pulseRaf);
-          pulseRaf = null;
-        }
-      } else {
-        startPulse();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    // Control expuesto al mundo React (pausa por sheet expandido)
-    pulseControlRef.current = { start: startPulse, stop: stopPulse, isFocused: () => pulseFocus };
+    // Líneas lisas y continuas sin efectos de parpadeo, bloom ni halos
+    const stopPulse = () => {};
+    const startPulse = () => {};
+    pulseControlRef.current = { start: startPulse, stop: stopPulse, isFocused: () => false };
 
     const applyHighlight = () => {
       // Sin early-return por isStyleLoaded: puede ser false dentro de
@@ -1435,7 +1334,7 @@ export function MapCanvas({
           : ['==', ['get', 'lineId'], '__ninguna__']
       ) as never;
       for (const prefix of [
-        'route-casing', 'route-line', 'route-flow-head', 'route-flow-tail',
+        'route-line', 'route-line', 'route-flow-head', 'route-flow-tail',
         'route-arrows', 'route-halo-a', 'route-halo-b',
         'route-stops',
       ]) {
@@ -1447,18 +1346,7 @@ export function MapCanvas({
         map.setFilter('route-stops-label', ['all', ['!=', ['get', 'name'], ''], routeFilter] as never);
       }
 
-      // Pulso + corriente: máximo UNA línea con foco (spec #861/#872).
-      // El kick se dispara al ganar/tocar el foco; sin foco, todo en
-      // silencio (halos opacidad 0, corriente apagada con fade 240ms).
-      pulseFocus = active.length === 1;
-      if (pulseFocus) {
-        kickStart = performance.now();
-        startFlow();
-        startPulse();
-      } else {
-        stopFlow();
-        stopPulse();
-      }
+
 
       // Encuadre suave sobre el recorrido completo de la línea o ramal seleccionados (evita saltar a paradas random)
       if (active && active.length === 1 && active[0] !== 'all' && cameraModeRef.current === 'overview') {
@@ -1837,55 +1725,7 @@ export function MapCanvas({
           features: routeFeatures,
         },
       });
-      map.addLayer({
-        id: 'route-casing',
-        type: 'line',
-        source: 'routes',
-        filter: HIDE_ALL_ROUTES,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': dark ? '#E8ECF2' : '#FFFFFF',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 6, 15.5, 7.8, 18, 10],
-          'line-opacity': 0, // Contorno blanco eliminado para trazas limpias directas
-          'line-offset': [
-            'interpolate', ['linear'], ['zoom'],
-            10, ['match', ['get', 'direction'], 'ida', 1.2, 'vuelta', 1.2, 0],
-            14, ['match', ['get', 'direction'], 'ida', 2.2, 'vuelta', 2.2, 0],
-            18, ['match', ['get', 'direction'], 'ida', 3.8, 'vuelta', 3.8, 0]
-          ],
-        },
-      });
-      // Pulso de ruta: 2 halos contrafase (Kick + Breathe, spec #861).
-      // Sólo se anima line-opacity/line-blur (uniforms GPU baratos por
-      // frame). OJO: "zoom" sólo puede ser input de un interpolate de
-      // PRIMER nivel — no se puede envolver en ['+', interp, k] (spec
-      // de MapLibre); el ancho va aplanado en un interpolate directo.
-      map.addLayer({
-        id: 'route-halo-a',
-        type: 'line',
-        source: 'routes',
-        filter: HIDE_ALL_ROUTES,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 16, 16.5, 18],
-          'line-opacity': 0,
-          'line-blur': 6,
-        },
-      });
-      map.addLayer({
-        id: 'route-halo-b',
-        type: 'line',
-        source: 'routes',
-        filter: HIDE_ALL_ROUTES,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 20, 16.5, 24],
-          'line-opacity': 0,
-          'line-blur': 10,
-        },
-      });
+      // Traza limpia, lisa y sólida de la ruta (sin bloom, halos ni contornos)
       map.addLayer({
         id: 'route-line',
         type: 'line',
@@ -1894,41 +1734,14 @@ export function MapCanvas({
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': ['get', 'color'],
-          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 3.2, 15.5, 4.6, 18, 6.4],
-          'line-opacity': 0.96,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 3.8, 15.5, 5.0, 18, 6.8],
+          'line-opacity': 1.0,
           'line-offset': [
             'interpolate', ['linear'], ['zoom'],
             10, ['match', ['get', 'direction'], 'ida', 1.2, 'vuelta', 1.2, 0],
             14, ['match', ['get', 'direction'], 'ida', 2.2, 'vuelta', 2.2, 0],
             18, ['match', ['get', 'direction'], 'ida', 3.8, 'vuelta', 3.8, 0]
           ],
-        },
-      });
-      map.addLayer({
-        id: 'route-flow-tail',
-        type: 'line',
-        source: 'routes',
-        filter: HIDE_ALL_ROUTES,
-        layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
-        paint: {
-          'line-color': ['get', 'colorLight'],
-          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 3.8, 15.5, 5.4, 18, 7.4],
-          'line-opacity': 0,
-        },
-      });
-      map.addLayer({
-        id: 'route-flow-head',
-        type: 'line',
-        source: 'routes',
-        filter: HIDE_ALL_ROUTES,
-        layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': 'none' },
-        paint: {
-          'line-color': '#FFFFFF',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 2.4, 15.5, 3.5, 18, 4.8],
-          'line-opacity': 0,
-          'line-blur': 0.4,
-          'line-dasharray': [0, 0, 3, 9],
-          'line-opacity-transition': { duration: 240 },
         },
       });
       // Flechas de sentido: symbol-placement 'line' rota cada chevron
@@ -2032,7 +1845,7 @@ export function MapCanvas({
             'icon-padding': 2,
           },
         },
-        'route-casing',
+        'route-line',
       );
       map.addLayer(
         {
@@ -2057,7 +1870,7 @@ export function MapCanvas({
             'text-opacity': ['interpolate', ['linear'], ['zoom'], 15.1, 0, 16, 1],
           },
         },
-        'route-casing',
+        'route-line',
       );
       // Semáforos y PARE: sólo en zoom de calle (16.2+) — más vistosos
       // pero siempre por debajo del recorrido
@@ -2075,7 +1888,7 @@ export function MapCanvas({
             'icon-padding': 6,
           },
         },
-        'route-casing',
+        'route-line',
       );
       // Cruces peatonales: aún más cerca (17) para no saturar
       map.addLayer(
@@ -2092,7 +1905,7 @@ export function MapCanvas({
             'icon-padding': 6,
           },
         },
-        'route-casing',
+        'route-line',
       );
 
       // ─── Paradas estilo Moovit/SUBE sobre rutas resaltadas ────
@@ -2482,16 +2295,7 @@ export function MapCanvas({
       // capas posteriores por encima, y agregar estos segmentos al final tapaba
       // al colectivo seleccionado durante el cruce de una parada.
       map.addSource('trip-active-segments', { type: 'geojson', data: tripSegmentsData() });
-      map.addLayer({
-        id: 'trip-seg-casing',
-        type: 'line',
-        source: 'trip-active-segments',
-        paint: {
-          'line-color': '#FFFFFF',
-          'line-width': 7,
-          'line-opacity': 0, // Contorno blanco eliminado en modo viaje
-        },
-      }, 'bus-glow');
+      // Traza limpia, lisa y sólida del viaje
       map.addLayer({
         id: 'trip-seg-line',
         type: 'line',
@@ -2499,6 +2303,7 @@ export function MapCanvas({
         paint: {
           'line-color': ['get', 'color'],
           'line-width': 4.5,
+          'line-opacity': 1.0,
           'line-dasharray': [
             'case',
             ['==', ['get', 'isDashed'], 1],
@@ -2506,12 +2311,6 @@ export function MapCanvas({
             ['literal', [1, 0]],
           ],
         },
-      }, 'bus-glow');
-
-      map.addLayer({
-        id: 'trip-seg-pulse', type: 'line', source: 'trip-active-segments',
-        filter: ['==', ['get', 'type'], 'ride'],
-        paint: { 'line-color': '#FFFFFF', 'line-width': 1.5, 'line-opacity': 0, 'line-blur': 0.35, 'line-dasharray': [0, 0, 2, 8] },
       }, 'bus-glow');
       // Reaplica modo foco tras (re)instalación (ej: cambio de tema).
       if (tripFocusRef.current) {
@@ -2635,7 +2434,6 @@ export function MapCanvas({
       if (resizeRafId !== null) cancelAnimationFrame(resizeRafId);
       if (layoutRefreshRafId !== null) cancelAnimationFrame(layoutRefreshRafId);
       ro.disconnect();
-      stopFlow();
       stopPulse();
       stopPlannerPulse();
       plannerApplyRef.current = () => {};
@@ -2645,7 +2443,6 @@ export function MapCanvas({
       refreshRef.current = () => {};
       cameraApplyRef.current = () => {};
       userLocationApplyRef.current = () => {};
-      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow);
       if (rafId !== null) cancelAnimationFrame(rafId);
       map.remove();

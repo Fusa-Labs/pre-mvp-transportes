@@ -1,4 +1,4 @@
-# Resumen de Correcciones y Mejoras — Ramas `feat/fase2-clean` y `feat/fase3-clean`
+# Resumen de Correcciones y Mejoras — Ramas `feat/fase2-clean` y `feat/fase4-clean`
 
 Documento consolidado de todas las correcciones, refactorizaciones y mejoras de experiencia de usuario aplicadas a la demo interactiva de transporte público (Líneas 65 y 194), a partir de la rama base del PR #5 (`adrian-fase2-A`).
 
@@ -15,8 +15,8 @@ Documento consolidado de todas las correcciones, refactorizaciones y mejoras de 
 ---
 
 ## 2. Infraestructura y Ramas de Trabajo
-* **Rama `feat/fase2-clean`:** Creada y preservada como checkpoint estable histórico en el commit `6272686` (`origin/feat/fase2-clean`), desplegada en paralelo en el puerto `3001` con árbol hardlinkeado de `node_modules` para evitar panics de Turbopack.
-* **Rama `feat/fase3-clean`:** Rama de desarrollo activa (`origin/feat/fase3-clean`), desplegada en el puerto `3000` accesible desde LAN en `http://192.168.2.2:3000/inicio`.
+* **Rama `feat/fase2-clean`:** Rama consolidada y estable desplegada en el puerto `3001` (`http://192.168.2.2:3001/inicio`).
+* **Rama `feat/fase4-clean`:** Rama de desarrollo activa desplegada en el puerto `3000` (`http://192.168.2.2:3000/inicio`), sincronizada con GitHub (`origin/feat/fase4-clean`).
 * **Soporte LAN móvil en Next.js (`next.config.ts`):** Configurado `allowedDevOrigins: ['192.168.2.2', '192.168.2.2:3000', '192.168.2.2:3001']` y mapeo por `netsh portproxy` en Windows.
 
 ---
@@ -51,6 +51,26 @@ Documento consolidado de todas las correcciones, refactorizaciones y mejoras de 
 ### Cápsulas Superiores Gemelas (`ViajeHeader`):
 * **Íconos de ubicación con marcas cardinales:** Reemplazados los viejos pins por el ícono **`Crosshair`** (con sus marcas de Norte, Sur, Este y Oeste, idéntico al del cartel de fijar origen en el mapa).
 * **Color blanco unificado:** Ambos íconos son blancos puros (`dark:text-white`), erradicando el color verde del origen.
+* **Erradicación del botón Swap (`ArrowUpDown`) en Modo Viaje:** En Modo Viaje activo, el botón de invertir origen/destino **no existe en el DOM**, evitando desfasajes de cámara y saltos hacia Constitución. A la derecha solo queda el botón circular **`X` (Salir de Modo Viaje)** centrado en altura (`w-9 h-9`).
+
+### Barra Inferior (`BottomNav`) — Comportamiento Dinámico y Modo Viaje Limpio:
+* **Ocultamiento de botones laterales en Modo Viaje:** Cuando `isTripMode` es `true`, los botones de **"Líneas"** e **"Inicio"** se ocultan completamente y el contenedor se transforma en un botón flotante circular centrado.
+* **Exclusividad de la Rosa:** Durante el viaje activo, el **único control visible en la parte inferior es la Rosa central de Metropol**, maximizando la visibilidad del mapa y permitiendo alternar cómodamente entre 3D y 2D Panorama.
+* **Erradicación del bug de apertura fantasma:** Al no estar el botón en el DOM, no se encolan aperturas de menús. Además, `handleCloseTripMode` y `handleOpenTripMode` resetean incondicionalmente `isLineMenuOpen` a `false`.
+* **Reaparición en Modo Exploratorio:** Al tocar la `X` y salir del viaje, la barra inferior se expande con animación suave y reaparecen los botones de "Líneas" e "Inicio".
+
+### Pestaña "Líneas" en Modo Exploratorio — Live Line Diagram Oficial:
+* **Erradicación del texto genérico y de la subpestaña Alertas:** Eliminado "Red La Nueva Metropol" y la pestaña redundante de alertas.
+* **Selector Integrado de Línea:** Pastillas oficiales compactas `[Línea 65]` (celeste) y `[Línea 194]` (verde) dentro de la cabecera del panel.
+* **Conmutador de Sentido con Destino Dinámico:** Botón compacto con icono `ArrowLeftRight` que conmuta fluidamente entre **`Hacia Barrancas de Belgrano`** y **`Hacia Plaza Constitución`**.
+* **Distribución Simétrica de Flota (50/50):** 
+  * En sentido Ida (`Hacia Barrancas`): se muestran y proyectan en tiempo real los 12 colectivos de ida (unidades 18, 20, 25, 28, 34, 39, 42, 45, 48, 51, 55, 58).
+  * En sentido Vuelta (`Hacia Constitución`): se muestran y proyectan los 12 colectivos de vuelta (unidades 62, 65, 71, 74, 78, 82, 85, 89, 92, 95, 98, 101).
+* **Arteria Vertical Continua (Live Stringline Diagram):**
+  * Una línea vertical continua del color de la línea que une secuencialmente todas las paradas oficiales del sentido activo.
+  * Los colectivos en vivo aparecen intercalados en su posición kilométrica relativa exacta (`alongM`) entre parada y parada con pastillas táctiles (`[🚌 Int. X · Y km/h]`).
+  * A medida que los colectivos avanzan por telemetría a 1 Hz, se desplazan visualmente en la línea vertical cruzando cada parada en vivo.
+  * Al presionar cualquier parada, la cámara vuela a ella en el mapa; al presionar un coche, la cámara lo enfoca y lo sigue en tiempo real.
 
 ### Toast de Estado de Viaje (`ArrivalStatusCard`):
 * **Forma y tamaño 100% idénticos a las cápsulas:** Reciclada la anatomía de las cápsulas (`rounded-full px-3 py-1.5`, contenedor `max-w-md mx-auto`, ícono `w-5`, botón de cierre `×` a la derecha y espaciador `w-8` para alinearse con los botones laterales).
@@ -59,8 +79,11 @@ Documento consolidado de todas las correcciones, refactorizaciones y mejoras de 
   * Al iniciar viaje (`VIAJE INICIADO`): Cápsula en **verde esmeralda** (`bg-emerald-600 border-emerald-500 text-white`) con ícono `CheckCircle2`.
 * Contador ininterrumpido de 10 segundos continuos.
 
-### Cartografía y Renderizado de Trazas (`MapCanvas`):
-* **Erradicación de contornos blancos (casing):** Capa `route-casing` y `trip-seg-casing` fijadas con opacidad 0. Todas las líneas del mapa son líneas limpias y sólidas sin rebordes blancos.
+### Cartografía y Renderizado de Trazas (`MapCanvas`) — Erradicación Total de Efectos Bloom, Halos y Parpadeos:
+* **Eliminación Definitiva del Efecto Bloom y Resplandores:** Se eliminaron de raíz del código las capas `route-halo-a` y `route-halo-b` que ejecutaban un bucle de animación con `line-blur` (6px a 10px) y pulsos de senos/cosenos.
+* **Eliminación de Capas de Flujo y Contornos Parpadeantes:** Se suprimieron permanentemente `route-flow-head`, `route-flow-tail`, `route-casing`, `trip-seg-pulse` y `trip-seg-casing`.
+* **Trazas 100% Lisas, Nítidas y Continuas:** Tanto en Modo Exploratorio (`route-line`) como en Modo Viaje (`trip-seg-line`), las trazas son líneas vectoriales puras, continuas y sólidas (`line-opacity: 1.0`) con bordes redondeados (`line-join: round`, `line-cap: round`), sin ningún tipo de brillo, contorno ajeno o parpadeo.
+* **Optimización de Rendimiento:** Al erradicar los loops de animación `pulseFrame` y los cálculos periódicos de `line-dasharray`, se liberaron ciclos continuos de GPU y CPU.
 * **Erradicación del color rojo en la Línea 65:** Suprimido el switch que pintaba de rojo (`#EF4444`) a los colectivos de vuelta. Todos los coches y badges de la Línea 65 son celestes oficiales (`#0EA5E9`).
 * **Traza azul opaco previa (`tripRouteShade`):** Derivación matemática universal con `shadeHex(shade.color, -0.42)` que genera un tono azul petróleo elegante para el tramo previo sin colores fijos.
 * **Supresión de la línea general en Modo Viaje:** En Modo Viaje se fuerza `effectiveHighlightLines = []` para que nunca se dibuje la traza general de 38 km desde Constitución hasta Barrancas, mostrando exclusivamente la traza de viaje `tripSegments`.
@@ -71,25 +94,11 @@ Documento consolidado de todas las correcciones, refactorizaciones y mejoras de 
 * **Eliminado el reseteo artificial a 2 paradas (`RIDING_STOPS = 2`):** El viaje continúa sin loops falsos hasta que el usuario sale manualmente con la `X`.
 * **Botón `Iniciar viaje`:** Renombrado desde "Subirme al próximo" en el timeline de la parada de origen.
 * **Cámara de coche en alternativas:** Distancia calibrada a ~100-110 metros (`zoom: 17.1`, `pitch: 52°`), ofreciendo un encuadre amplio y cómodo de la calle.
-
-### Interacción y Máquina de Estados de la Rosa (`BottomNav`):
-* **Erradicado el contorno naranja:** Aplicadas clases `outline-none focus:outline-none focus:ring-0 focus-visible:outline-none select-none [-webkit-tap-highlight-color:transparent]`.
-* **Blindaje contra recargas:** `event.preventDefault()` incondicional en `/mapas` y eliminación de la trampa del doble tap.
-* **Máquina de estados:**
-  * Si la cámara se descoloca por arrastre manual: un tap recentra al coche/parada.
-  * Si está siguiendo al coche: un tap se eleva a Panorama 2D ceñido entre Parque Centenario y Barrancas (`minZoom: 13.85`).
-  * Si está en Panorama 2D: un tap vuelve a bajar a 3D detrás del coche.
+* **Encuadre estricto de inicio a fin en 2D:** Helper `getTripStartEndBounds` con `minZoom: 13.85` que encuadra exclusivamente Parque Centenario abajo y Barrancas de Belgrano arriba al presionar la Rosa.
 
 ---
 
 ## 5. Tareas Pendientes (Backlog Inmediato)
 
-Las siguientes tareas fueron identificadas para su resolución prioritaria:
-
-1. **Tarea Pendiente 1 — Lógica del botón "Invertir origen y destino":**  
-   * **Ubicación:** Botón circular con ícono `ArrowUpDown`, situado en la sección superior de `/mapas` en la columna lateral de acciones, justo al lado de la cápsula de origen.
-   * **Objetivo:** Corregir y completar la lógica de inversión para que al tocarlo se intercambien los puntos de origen y destino del viaje, recalculando automáticamente la ruta, el sentido de circulación (ida/vuelta), las paradas de referencia y la reasignación de flota correspondiente sin romper el estado activo de navegación.
-
-2. **Tarea Pendiente 2 — Lógica completa de la pestaña "Líneas":**  
-   * **Ubicación:** Pestaña "Líneas" situada en la `BottomNav` (a la izquierda de la Rosa central).
-   * **Objetivo:** Corregir integralmente la lógica de apertura, filtrado por línea/ramal, sincronización con el mapa, selección de unidades y cierre del selector de líneas, asegurando que su interacción sea predecible, no interfiera con el Modo Viaje y permita explorar cualquier línea del catálogo sin desconfigurar la aplicación.
+1. **Tarea Pendiente 1 — Lógica del botón "Invertir origen y destino" en Modo Exploratorio / Planificador:**  
+   * Preservar y pulir la inversión de paradas exclusivamente en el flujo previo de búsqueda y planificación (antes de iniciar la navegación), recalculando las alternativas de ida y vuelta.

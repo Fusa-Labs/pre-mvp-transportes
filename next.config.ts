@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
+    "*.trycloudflare.com",
+    "caring-kernel-tournaments-trembl.trycloudflare.com",
     "192.168.2.2",
     "192.168.2.2:3000",
     "192.168.2.2:3001",

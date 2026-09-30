@@ -85,53 +85,68 @@ export function BottomNav({
       aria-label="Navegación principal"
       role="navigation"
     >
-      <div className="max-w-[340px] sm:max-w-sm mx-auto relative pointer-events-auto">
-        <div className="relative h-[64px] rounded-[28px] border border-hairline bg-canvas shadow-[0_10px_36px_rgba(16,29,61,0.16)]">
-          <div className="flex h-full items-stretch justify-between px-1.5">
-            {/* Líneas — izquierda (cerca del centro, no al borde) */}
-            {onToggleLineMenu && onMap ? (
-              <button
-                type="button"
-                onClick={onToggleLineMenu}
-                className={cn(
-                  'flex min-w-[88px] flex-1 flex-col items-center justify-center h-full rounded-2xl transition-all duration-200 active:scale-95 touch-manipulation',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink',
-                  lineasActive ? 'text-ink' : 'text-text-muted hover:text-ink',
-                )}
-                aria-label="Líneas"
-                aria-pressed={lineasActive}
-              >
-                <Bus
+      <div
+        className={cn(
+          "mx-auto relative pointer-events-auto transition-all duration-300 ease-out",
+          isTripMode ? "w-[64px]" : "max-w-[340px] sm:max-w-sm"
+        )}
+      >
+        <div
+          className={cn(
+            "relative h-[64px] border border-hairline bg-canvas shadow-[0_10px_36px_rgba(16,29,61,0.16)] transition-all duration-300 ease-out",
+            isTripMode
+              ? "w-[64px] rounded-full border-transparent bg-transparent shadow-none"
+              : "rounded-[28px]"
+          )}
+        >
+          {/* Botones laterales: Líneas e Inicio (visibles únicamente fuera de Modo Viaje) */}
+          {!isTripMode && (
+            <div className="flex h-full items-stretch justify-between px-1.5 animate-in fade-in duration-200">
+              {/* Líneas — izquierda (cerca del centro, no al borde) */}
+              {onToggleLineMenu && onMap ? (
+                <button
+                  type="button"
+                  onClick={onToggleLineMenu}
                   className={cn(
-                    'w-5 h-5 mb-0.5 transition-transform',
-                    lineasActive && 'scale-110',
+                    'flex min-w-[88px] flex-1 flex-col items-center justify-center h-full rounded-2xl transition-all duration-200 active:scale-95 touch-manipulation',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink',
+                    lineasActive ? 'text-ink' : 'text-text-muted hover:text-ink',
                   )}
-                />
-                <span
-                  className={cn(
-                    'text-[11px] leading-none',
-                    lineasActive ? 'font-bold' : 'font-medium',
-                  )}
+                  aria-label="Líneas"
+                  aria-pressed={lineasActive}
                 >
-                  Líneas
-                </span>
-              </button>
-            ) : (
-              <NavItem href="/mapas" label="Líneas" icon={Bus} active={false} className="min-w-[88px] flex-1" />
-            )}
+                  <Bus
+                    className={cn(
+                      'w-5 h-5 mb-0.5 transition-transform',
+                      lineasActive && 'scale-110',
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      'text-[11px] leading-none',
+                      lineasActive ? 'font-bold' : 'font-medium',
+                    )}
+                  >
+                    Líneas
+                  </span>
+                </button>
+              ) : (
+                <NavItem href="/mapas" label="Líneas" icon={Bus} active={false} className="min-w-[88px] flex-1" />
+              )}
 
-            {/* Spacer central bajo la rosa FAB — ancho fijo, sin celda fantasma ancha */}
-            <div aria-hidden className="w-[56px] shrink-0" />
+              {/* Spacer central bajo la rosa FAB — ancho fijo, sin celda fantasma ancha */}
+              <div aria-hidden className="w-[56px] shrink-0" />
 
-            {/* Inicio — derecha (espejo de Líneas) */}
-            <NavItem
-              href="/inicio"
-              label="Inicio"
-              icon={Home}
-              active={inicioActive}
-              className="min-w-[88px] flex-1"
-            />
-          </div>
+              {/* Inicio — derecha (espejo de Líneas) */}
+              <NavItem
+                href="/inicio"
+                label="Inicio"
+                icon={Home}
+                active={inicioActive}
+                className="min-w-[88px] flex-1"
+              />
+            </div>
+          )}
 
           {/* Rosa elevada al centro exacto → /mapas (doble tap: Modo Viaje) */}
           <Link

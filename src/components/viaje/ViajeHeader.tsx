@@ -10,7 +10,7 @@ interface ViajeHeaderProps {
   destinationLocation: LocationPoint | null;
   onSelectOrigin?: (location: LocationPoint) => void;
   onSelectDestination?: (location: LocationPoint) => void;
-  onSwapPoints: () => void;
+  onSwapPoints?: () => void;
   onClose: () => void;
   userSimulatedLocationName?: string;
   onStartMapPick?: (target: "origin" | "destination") => void;
@@ -122,25 +122,27 @@ export default function ViajeHeader({
           </div>
         </div>
 
-        {/* Columna lateral de acciones: Swap (ArrowUpDown) y Cerrar Modo Viaje (X) */}
-        <div className="flex flex-col gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={onSwapPoints}
-            title="Invertir origen y destino"
-            aria-label="Invertir origen y destino"
-            className="w-8 h-8 rounded-full bg-canvas dark:bg-canvas border border-hairline flex items-center justify-center text-ink shadow-sm hover:bg-canvas-soft active:scale-90 transition-all"
-          >
-            <ArrowUpDown className="w-3.5 h-3.5" />
-          </button>
+        {/* Columna lateral de acciones: Swap (solo en modo exploración si se provee) y Cerrar Modo Viaje (X) */}
+        <div className="flex flex-col justify-center gap-1.5 shrink-0">
+          {onSwapPoints && (
+            <button
+              type="button"
+              onClick={onSwapPoints}
+              title="Invertir origen y destino"
+              aria-label="Invertir origen y destino"
+              className="w-8 h-8 rounded-full bg-canvas dark:bg-canvas border border-hairline flex items-center justify-center text-ink shadow-sm hover:bg-canvas-soft active:scale-90 transition-all"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
             title="Salir de Modo Viaje"
             aria-label="Cerrar Modo Viaje"
-            className="w-8 h-8 rounded-full bg-canvas dark:bg-canvas border border-hairline flex items-center justify-center text-text-muted hover:text-ink shadow-sm hover:bg-canvas-soft active:scale-90 transition-all"
+            className="w-9 h-9 rounded-full bg-canvas dark:bg-canvas border border-hairline flex items-center justify-center text-text-muted hover:text-ink shadow-sm hover:bg-canvas-soft active:scale-90 transition-all"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       </div>
