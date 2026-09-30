@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import DynamicMap from "@/components/map/DynamicMap";
 import LineSelectorBar, { getRamalLetter, getRamalDisplayName } from "@/components/ui-shell/LineSelectorBar";
 import LiveLineDiagram from "@/components/ui-shell/LiveLineDiagram";
+import ExploreSearchSheet, { SearchDestination, SearchStop } from "@/components/ui-shell/ExploreSearchSheet";
 import { BottomNav } from "@/components/ui/bottom-nav";
 import ViajeHeader from "@/components/viaje/ViajeHeader";
 import ViajePanel from "@/components/viaje/ViajePanel";
@@ -64,6 +65,7 @@ export default function TransportesAppPage() {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const [isLineMenuOpen, setIsLineMenuOpen] = useState<boolean>(false);
+  const [isExploreSearchOpen, setIsExploreSearchOpen] = useState<boolean>(false);
   const lineas = useMemo(() => TransportService.getLineas(), []);
   const paradas = useMemo(() => TransportService.getParadas(), []);
   const alertas = useMemo(() => TransportService.getAlertas(), []);
@@ -1308,6 +1310,42 @@ export default function TransportesAppPage() {
     setStopFocusNonce((n) => n + 1);
   }, [tripKey]);
 
+  const handleSelectSearchDestination = useCallback((dest: SearchDestination) => {
+    setIsExploreSearchOpen(false);
+    const origin = TripPlannerService.resolveLocationPoint(SIMULATED_USER_LOCATION.name);
+    const targetPoint = { name: dest.name, lat: dest.lat, lng: dest.lng };
+    if (origin) {
+      setOriginLocation(origin);
+    }
+    setDestinationLocation(targetPoint);
+    setIsTripMode(true);
+    setIsLineMenuOpen(false);
+    setTripViewVisible(true);
+    setTrip3D(true);
+  }, []);
+
+  const handleSelectSearchLine = useCallback((lineId: string) => {
+    setIsExploreSearchOpen(false);
+    setSelectedLineaId(lineId);
+    setSelectedRamalId(lineId === "line-194" ? "ramal-194-a" : null);
+    setIsLineMenuOpen(true);
+  }, []);
+
+  const handleSelectSearchStop = useCallback(
+    (stop: SearchStop) => {
+      setIsExploreSearchOpen(false);
+      handleSelectParada({
+        id: stop.id,
+        nombre: stop.name,
+        direccion: stop.name,
+        lat: stop.lat,
+        lng: stop.lng,
+        lineasIds: stop.lineIds,
+      });
+    },
+    [handleSelectParada]
+  );
+
   // Links legacy del home (?parada=<id>&linea=<id> o ?linea=<id> sola, sin trip):
   // aplican el filtro de línea/ramal, enfocan la parada con su bubble y, cuando
   // llega el feed de 1 Hz, auto-seleccionan la unidad más próxima para seguirla.
@@ -1500,8 +1538,8 @@ export default function TransportesAppPage() {
                 {/* Barra principal de búsqueda con Lupita: acceso directo a Modo Viaje */}
                 <button
                   type="button"
-                  onClick={handleOpenTripMode}
-                  title="Planificar viaje en transporte público"
+                  onClick={() => setIsExploreSearchOpen(true)}
+                  title="Buscar destinos, líneas o paradas"
                   aria-label="Abrir planificador de viaje"
                   className="w-full bg-canvas dark:bg-canvas border border-hairline rounded-full px-3.5 py-2 shadow-sm flex items-center justify-between text-left hover:bg-canvas-soft transition-all active:scale-[0.99] group"
                 >
@@ -1738,21 +1776,32 @@ export default function TransportesAppPage() {
               onStartBoardingSimulation={handleStartBoardingSimulation}
             />
           ) : (
-            <LiveLineDiagram
-              isOpen={isLineMenuOpen}
-              onClose={() => setIsLineMenuOpen(false)}
-              selectedLineaId={selectedLineaId || "line-65"}
-              onSelectLineaId={handleSelectExploreLinea}
-              selectedRamalId={selectedRamalId}
-              onSelectRamalId={setSelectedRamalId}
-              sentido={exploreSentido}
-              onToggleSentido={handleToggleExploreSentido}
-              positions={positions}
-              selectedParadaId={selectedParada?.id}
-              onSelectParada={handleSelectParada}
-              selectedUnitId={selectedVehiculo?.unitId}
-              onSelectVehiculo={handleBusSelect}
-            />
+            <>
+              <LiveLineDiagram
+                isOpen={isLineMenuOpen}
+                onClose={() => setIsLineMenuOpen(false)}
+                selectedLineaId={selectedLineaId || "line-65"}
+                onSelectLineaId={handleSelectExploreLinea}
+                selectedRamalId={selectedRamalId}
+                onSelectRamalId={setSelectedRamalId}
+                sentido={exploreSentido}
+                onToggleSentido={handleToggleExploreSentido}
+                positions={positions}
+                selectedParadaId={selectedParada?.id}
+                onSelectParada={handleSelectParada}
+                selectedUnitId={selectedVehiculo?.unitId}
+                onSelectVehiculo={handleBusSelect}
+              />
+
+              {/* Modal / Search Sheet interactivo de Modo Exploración */}
+              <ExploreSearchSheet
+                isOpen={isExploreSearchOpen && !isTripMode}
+                onClose={() => setIsExploreSearchOpen(false)}
+                onSelectDestination={handleSelectSearchDestination}
+                onSelectLine={handleSelectSearchLine}
+                onSelectStop={handleSelectSearchStop}
+              />
+            </>
           )}
       </main>
 

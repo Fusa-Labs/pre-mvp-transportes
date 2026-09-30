@@ -102,3 +102,28 @@ Documento consolidado de todas las correcciones, refactorizaciones y mejoras de 
 
 1. **Tarea Pendiente 1 — Lógica del botón "Invertir origen y destino" en Modo Exploratorio / Planificador:**  
    * Preservar y pulir la inversión de paradas exclusivamente en el flujo previo de búsqueda y planificación (antes de iniciar la navegación), recalculando las alternativas de ida y vuelta.
+
+## 6. Fase 5 — Rediseño de la Búsqueda Exploratoria (`ExploreSearchSheet`)
+
+### Erradicación del "Falso Buscador" de Exploración:
+* Anteriormente, la barra superior con el texto *"¿A dónde vas?"* funcionaba únicamente como un botón rígido que forzaba el inicio del viaje hacia Barrancas de Belgrano de forma abrupta.
+* Se transformó en un **Buscador Exploratorio Interactivo y Modular** (`ExploreSearchSheet.tsx`), basado en los patrones estándar de **Transit App, Citymapper y Moovit**, adaptado a la escala de la maqueta sin sobrecargar con APIs de geocodificación pesadas.
+
+### Características del Nuevo `ExploreSearchSheet`:
+1. **Atajos Frecuentes de 1 Tap:**
+   * `[🏠 Casa]`: Barrancas de Belgrano
+   * `[💼 Trabajo]`: Plaza Constitución
+   * `[📍 Origen Demo]`: Parque Centenario
+   * Al tocar cualquiera de ellos, se define inmediatamente como destino manteniendo la ubicación del usuario como origen y lanzando la navegación fluida.
+2. **Terminales y Puntos Clave de la Red Metropol:**
+   * Lista directa con accesos a: *Barrancas de Belgrano*, *Plaza Constitución*, *Centro de Transferencia Zárate*, *Estación Escobar*, *Plaza Once* y *Plaza Italia*.
+3. **Búsqueda Reactiva Multimodal (Líneas, Paradas y Destinos):**
+   * Mientras el usuario escribe:
+     * Si escribe *"65"* o *"194"*: sugiere ver el recorrido completo en el *Live Line Diagram*.
+     * Si escribe el nombre de una calle/parada (*"Díaz Vélez"*, *"Campana"*): filtra las paradas de la red para enfocarlas en el mapa.
+     * Si escribe un destino (*"Zárate"*, *"Once"*): ofrece viajar directamente a esa cabecera.
+4. **Historial Reciente de Maqueta:**
+   * Sugiere el trayecto recurrente (*Parque Centenario ➔ Barrancas de Belgrano*) en un solo toque.
+5. **Arquitectura y Limpieza:**
+   * Cero código espagueti: componente 100% aislado con TypeScript estricto.
+   * Cero cascading renders y cero variables huérfanas.
