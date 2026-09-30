@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ArrivalPhase } from "@/lib/trip-map-navigation";
 
 interface ArrivalStatusCardProps {
@@ -9,7 +9,7 @@ interface ArrivalStatusCardProps {
   lineNumber: string;
   unitId: string;
   nextStopName?: string;
-  onDismiss: () => void;
+  onDismiss?: () => void;
 }
 
 const HAPTIC_BY_PHASE: Partial<Record<ArrivalPhase, number | number[]>> = {
@@ -27,48 +27,115 @@ function RollingDuration({ value }: { value: number }) {
   );
 }
 
-/** Presentational shell: the parent retains the arrival state machine. */
+/** Alerta Heads-Up efímera: emerge al entrar a ARRIBANDO o al iniciar viaje (PASSED / VIAJANDO) y se auto-cierra tras 10s */
 export default function ArrivalStatusCard({
   phase,
-  minutes,
+  minutes: _minutes,
   lineNumber,
   unitId,
-  nextStopName,
+  nextStopName: _nextStopName,
   onDismiss,
 }: ArrivalStatusCardProps) {
+  const [visible, setVisible] = useState(false);
   const previousPhaseRef = useRef<ArrivalPhase>(phase);
-
-  useEffect(() => {
-    if (previousPhaseRef.current === phase) return;
-    previousPhaseRef.current = phase;
-    const pattern = HAPTIC_BY_PHASE[phase];
-    if (pattern && typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(pattern);
-  }, [phase]);
+  const previousUnitRef = useRef<string>(unitId);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isArriving = phase === "ARRIBANDO";
-  const isRiding = phase === "VIAJANDO_GREEN" || phase === "VIAJANDO_YELLOW";
-  const phaseClass = `arrival-card--${phase.toLowerCase().replaceAll("_", "-")}`;
+  const isTripStarted = phase === "PASSED" || phase === "VIAJANDO_GREEN" || phase === "VIAJANDO_YELLOW";
+
+  useEffect(() => {
+    // Si la fase es ARRIBANDO o viaje iniciado (PASSED / VIAJANDO_GREEN / VIAJANDO_YELLOW)
+    if (isArriving || isTripStarted) {
+      const phaseChanged = previousPhaseRef.current !== phase;
+      const unitChanged = previousUnitRef.current !== unitId;
+      const wasTripStarted =
+        previousPhaseRef.current === "PASSED" ||
+        previousPhaseRef.current === "VIAJANDO_GREEN" ||
+        previousPhaseRef.current === "VIAJANDO_YELLOW";
+
+      // Disparar si cambió la fase (ej: de normal a arribando, o de arribando a viaje iniciado), o cambió la unidad
+      if ((isArriving && (phaseChanged || unitChanged)) || (isTripStarted && (!wasTripStarted || unitChanged))) {
+        setVisible(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        // Auto-ocultar a los 10 segundos
+        timerRef.current = setTimeout(() => {
+          setVisible(false);
+        }, 10000);
+
+        const pattern = HAPTIC_BY_PHASE[phase];
+        if (pattern && typeof navigator !== "undefined" && "vibrate" in navigator) {
+          navigator.vibrate(pattern);
+        }
+      }
+    } else {
+      setVisible(false);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    }
+
+    previousPhaseRef.current = phase;
+    previousUnitRef.current = unitId;
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [phase, unitId, isArriving, isTripStarted]);
+
+  if (!visible || (!isArriving && !isTripStarted)) return null;
+
+  const handleClose = () => {
+    setVisible(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    onDismiss?.();
+  };
 
   return (
-    <div className="absolute left-4 right-4 top-[calc(max(14px,env(safe-area-inset-top))+72px+var(--trip-stack-gap,0px))] z-30 mx-auto max-w-[320px] pointer-events-none">
-      <div aria-live="polite" data-arrival-phase={phase} className={`arrival-card pointer-events-auto relative mt-0 flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-2.5 ${phaseClass}`}>
-        <div className="min-w-0">
-          <p className="arrival-card__eyebrow">{isRiding ? "Viajando" : "Tu colectivo"}</p>
-          {isArriving ? (
-            <p className="truncate text-sm font-black tracking-wide">ARRIBANDO · Línea {lineNumber}</p>
-          ) : isRiding ? (
-            <p className="truncate text-sm font-bold">VIAJANDO · Línea {lineNumber} · coche {unitId}{nextStopName ? ` → ${nextStopName}` : ""}</p>
-          ) : (
-            <p className="truncate text-sm font-bold">Línea {lineNumber} · coche {unitId}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {phase === "NORMAL" && minutes !== null && <span data-arrival-eta className="arrival-card__eta"><RollingDuration value={minutes} /></span>}
-          <button type="button" onClick={onDismiss} title="Salir de la vista de viaje (se conserva el viaje)" aria-label="Ocultar vista de viaje" className="arrival-card__dismiss w-6 h-6 rounded-full flex items-center justify-center shrink-0">
+    <div className="absolute left-4 right-4 top-[calc(max(14px,env(safe-area-inset-top))+72px+var(--trip-stack-gap,0px))] z-30 mx-auto max-w-[320px] pointer-events-none animate-in fade-in slide-in-from-top-3 duration-300">
+      {isTripStarted ? (
+        <div
+          aria-live="polite"
+          data-arrival-phase={phase}
+          className="pointer-events-auto relative mt-0 flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-2.5 shadow-xl bg-emerald-600 border-emerald-500 text-white"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-100">
+              Línea {lineNumber} · Coche {unitId}
+            </p>
+            <p className="truncate text-sm font-black tracking-wide text-white">
+              Viaje iniciado
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            title="Ocultar aviso"
+            aria-label="Ocultar aviso de viaje iniciado"
+            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 hover:bg-white/20 transition-colors text-white"
+          >
             <span aria-hidden="true" className="text-base leading-none">×</span>
           </button>
         </div>
-      </div>
+      ) : (
+        <div
+          aria-live="polite"
+          data-arrival-phase={phase}
+          className="arrival-card arrival-card--arribando pointer-events-auto relative mt-0 flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-2.5 shadow-xl"
+        >
+          <div className="min-w-0">
+            <p className="arrival-card__eyebrow">¡Atención en parada!</p>
+            <p className="truncate text-sm font-black tracking-wide">ARRIBANDO · Línea {lineNumber}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            title="Ocultar aviso"
+            aria-label="Ocultar aviso de arribo"
+            className="arrival-card__dismiss w-6 h-6 rounded-full flex items-center justify-center shrink-0 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+          >
+            <span aria-hidden="true" className="text-base leading-none">×</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

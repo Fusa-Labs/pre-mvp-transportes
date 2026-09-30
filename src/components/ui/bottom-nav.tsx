@@ -51,16 +51,6 @@ export function BottomNav({
   const mapaActive = onMap;
   const dark = resolvedTheme === 'dark';
 
-  const isGreenRide = arrivalPhase === 'VIAJANDO_GREEN';
-  const isYellowRide = arrivalPhase === 'VIAJANDO_YELLOW';
-  const isCritical = arrivalPhase === 'ARRIBANDO';
-  const roseBgClass = isTripMode
-    ? isGreenRide ? 'bg-[var(--viajando-green)]' : isYellowRide ? 'bg-[var(--viajando-yellow)]' : isCritical ? 'bg-red-600' : 'bg-canvas'
-    : dark ? 'bg-[#1D2B4F]' : 'bg-white';
-  const roseRingClass = isTripMode
-    ? isGreenRide ? 'ring-[var(--viajando-green)] ring-[5px]' : isYellowRide ? 'ring-[var(--viajando-yellow)] ring-[5px]' : isCritical ? 'ring-red-600 ring-[5px]' : 'ring-electric-blue ring-[5px]'
-    : dark ? 'ring-[#1D2B4F] ring-4' : 'ring-white ring-4';
-  const roseMono = isTripMode && (isGreenRide || isYellowRide || isCritical);
   const handleRoseClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     const now = Date.now();
     const isDouble = now - lastTapRef.current < DOUBLE_TAP_MS;
@@ -153,15 +143,13 @@ export function BottomNav({
             data-active={mapaActive}
             onClick={handleRoseClick}
             className={cn(
-              'absolute left-1/2 -translate-x-1/2 -top-3.5 z-10 flex flex-col items-center justify-center w-[56px] h-[56px] rounded-full active:scale-95 transition-[background-color,box-shadow,transform,ring-color] duration-500 [transition-timing-function:cubic-bezier(.16,1,.3,1)] rutaba-rose-btn touch-manipulation',
-              isTripMode && 'rutaba-rose-trip-morph',
-              roseBgClass,
-              roseRingClass,
+              'absolute left-1/2 -translate-x-1/2 -top-3.5 z-10 flex flex-col items-center justify-center w-[56px] h-[56px] rounded-full shadow-md active:scale-95 transition-transform duration-200 touch-manipulation',
+              dark ? 'bg-[#1D2B4F] ring-4 ring-[#1D2B4F]' : 'bg-white ring-4 ring-white',
             )}
             aria-label={onMap && tripToggleActive ? "Mostrar u ocultar la vista del viaje. Doble toque para abrir Modo Viaje" : "Ir al mapa. Doble toque para abrir Modo Viaje"}
             aria-current={mapaActive ? 'page' : undefined}
           >
-            <MetropolRose variant={roseMono ? "mono" : "full"} className={cn("h-7 w-auto", roseMono && (isYellowRide ? "text-[#1D2B4F]" : "text-white"))} />
+            <MetropolRose variant="full" className="h-7 w-auto" />
           </Link>
         </div>
       </div>

@@ -59,6 +59,7 @@ tmp/
 
 # Local Pi state
 .pi/
+graph-out/
 
 dev.log
 dev.log.err

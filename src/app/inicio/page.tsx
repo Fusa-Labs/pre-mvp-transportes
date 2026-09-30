@@ -8,7 +8,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -26,10 +25,12 @@ import { LocationConsentModal } from '@/components/home/LocationConsentModal';
 import { PlaceSelector } from '@/components/home/PlaceSelector';
 import { AssistantWizard } from '@/components/home/AssistantWizard';
 import { MetropolRose } from '@/components/brand/metropol-logo';
+
 import { MOCK_STOPS, MOCK_LINES, MOCK_ALERTS } from '@/mock/data';
 import { subscribeToPositions } from '@/mock/live';
 import { useFavorites } from '@/hooks/use-favorites';
 import { useAssistantSession } from '@/hooks/use-assistant-session';
+import { useIntermittentDelay } from '@/hooks/use-intermittent-delay';
 import { assistantRefFromSession } from '@/lib/assistant-session';
 import { TripPlannerService } from '@/lib/services/trip-planner-service';
 import { TransportService } from '@/lib/services/transport-service';
@@ -57,9 +58,13 @@ const ALERT_BADGE_LABEL: Record<string, string> = {
   route_change: 'DESVÍO',
 };
 
-function activeAlertLabelForLine(lineId: string): string | null {
+function activeAlertLabelForLine(lineId: string, delayMinutes?: number): string | null {
   const alert = ACTIVE_ALERTS.find((a) => a.lineId === lineId && a.disrupcion);
-  return alert ? (ALERT_BADGE_LABEL[alert.type] ?? 'ALERTA') : null;
+  if (!alert) return null;
+  if (alert.type === 'delay') {
+    return `${delayMinutes ?? 4} min de retraso`;
+  }
+  return ALERT_BADGE_LABEL[alert.type] ?? 'ALERTA';
 }
 
 /**
@@ -72,6 +77,8 @@ interface SeededRoute {
   originStopId: string;
   destinationStopId: string;
   lineId: string;
+  originLabel: string;
+  destinationLabel: string;
 }
 
 const SEEDED_ROUTES: SeededRoute[] = [
@@ -80,30 +87,39 @@ const SEEDED_ROUTES: SeededRoute[] = [
     originStopId: 'stop-65-05',
     destinationStopId: 'stop-65-09',
     lineId: 'line-65',
+    originLabel: 'Parque Centenario',
+    destinationLabel: 'Barrancas de Belgrano',
   },
   {
     id: 'seed-65-constitucion-barrancas',
     originStopId: 'stop-65-01',
     destinationStopId: 'stop-65-09',
     lineId: 'line-65',
+    originLabel: 'Plaza Constitución',
+    destinationLabel: 'Barrancas de Belgrano',
   },
   {
     id: 'seed-194-once-escobar',
     originStopId: 'stop-194-once',
     destinationStopId: 'stop-194-escobar-estacion',
     lineId: 'line-194',
+    originLabel: 'Terminal Once',
+    destinationLabel: 'Estación Escobar',
   },
   {
     id: 'seed-194-once-zarate',
     originStopId: 'stop-194-once',
     destinationStopId: 'stop-194-zarate-transferencia',
     lineId: 'line-194',
+    originLabel: 'Terminal Once',
+    destinationLabel: 'Zárate Centro',
   },
 ];
 
 export default function HomePage() {
   const router = useRouter();
   const { favorites } = useFavorites();
+  const delayMinutes = useIntermittentDelay(2, 9);
 
   // ─── Asistente del inicio (PBI-017 + PBI-019): fases, permiso decorativo,
   //     selector de lugar y respuesta persistida que refresca con GPS live ───
@@ -426,25 +442,24 @@ export default function HomePage() {
     [router],
   );
 
-  const today = new Date().toLocaleDateString('es-AR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-
   return (
     <div className="h-dvh bg-canvas flex flex-col overflow-hidden">
-      <header className="px-4 pt-6 pb-2 bg-canvas flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2.5">
-          <MetropolRose className="h-6 w-auto" />
-          <div>
-            <h1 className="text-[22px] font-bold text-ink leading-tight">
-              Hola 👋
-            </h1>
-            <p className="text-sm font-semibold text-text-muted capitalize">
-              {today}
-            </p>
-          </div>
+      <header className="px-4 pt-6 pb-2 bg-canvas flex items-center gap-2.5 shrink-0">
+        <h1 className="text-[21px] font-normal text-[#1b2a51] dark:text-white tracking-tight shrink-0">
+          Bienvenido a la Red
+        </h1>
+        <div className="flex items-center gap-2 shrink-0">
+          <MetropolRose variant="full" className="h-7.5 w-auto shrink-0" />
+          <img
+            src="/logo-solo-metropol-white.png"
+            alt="Metropol"
+            className="h-6.5 w-auto object-contain shrink-0 hidden dark:inline"
+          />
+          <img
+            src="/logo-solo-metropol.png"
+            alt="Metropol"
+            className="h-6.5 w-auto object-contain shrink-0 inline dark:hidden"
+          />
         </div>
       </header>
 
@@ -459,47 +474,53 @@ export default function HomePage() {
             <h2 className="text-[20px] font-semibold text-ink">Historial de paradas</h2>
           </div>
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             {seededRoutes.map(({ seed, origin, destination, line, arrival }) => {
-              const alertLabel = activeAlertLabelForLine(seed.lineId);
+              const alertLabel = activeAlertLabelForLine(seed.lineId, delayMinutes);
               return (
                 <button
                   key={seed.id}
                   type="button"
                   onClick={() => startSeededTrip(seed)}
-                  aria-label={`Iniciar viaje desde ${origin.name} hacia ${destination.name} en la línea ${line.shortName}${alertLabel ? `. Alerta: ${alertLabel}` : ''}`}
-                  className="w-full text-left bg-canvas rounded-2xl border border-hairline shadow-sm p-4 flex items-center gap-3 hover:bg-canvas-soft active:scale-[0.99] transition-all"
+                  aria-label={`Iniciar viaje desde ${seed.originLabel} hacia ${seed.destinationLabel} en la línea ${line.shortName}${alertLabel ? `. Alerta: ${alertLabel}` : ''}`}
+                  className="w-full text-left bg-canvas rounded-2xl border border-hairline shadow-sm px-3.5 py-2.5 flex items-center gap-3 hover:bg-canvas-soft active:scale-[0.99] transition-all"
                 >
-                  <LineBadge shortName={line.shortName} color={line.color} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold text-text-muted truncate">
-                      {origin.name}
-                    </p>
-                    <p className="text-sm font-bold text-ink truncate">
-                      → {destination.name}
-                    </p>
+                  <LineBadge shortName={line.shortName} color={line.color} size="md" />
+
+                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5 min-w-0 text-[13px] leading-snug">
+                      <span className="font-bold text-ink shrink-0">Desde:</span>
+                      <span className="font-medium text-text-muted truncate">
+                        {seed.originLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-0 text-[13px] leading-snug">
+                      <span className="font-bold text-ink shrink-0">Hacia:</span>
+                      <span className="font-medium text-text-muted truncate">
+                        {seed.destinationLabel}
+                      </span>
+                    </div>
                   </div>
-                  <div className="shrink-0 flex flex-col items-end gap-1">
-                    {alertLabel && (
-                      <span className="inline-flex items-center h-5 px-2 rounded-full bg-[#d97706]/10 text-[#d97706] text-[10px] font-bold tracking-wider animate-pulse">
-                        {alertLabel}
+
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {arrival ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#16a34a]/10 text-[#16a34a] text-[11px] font-semibold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] animate-pulse shrink-0" />
+                        <span>
+                          {arrival.minutos === 0 ? 'En parada' : `Llega en ${arrival.minutos} min`}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-canvas-soft border border-hairline text-text-muted text-[11px] font-medium">
+                        Sin datos
                       </span>
                     )}
-                    <div className="text-right">
-                      {arrival ? (
-                        <>
-                          <p className="text-xl font-extrabold text-ink leading-none">
-                            {arrival.displayLabel ??
-                              (arrival.minutos === 0 ? 'Llega' : `${arrival.minutos} min`)}
-                          </p>
-                          <span className="text-[10px] font-semibold text-text-muted">
-                            en vivo
-                          </span>
-                        </>
-                      ) : (
-                        <p className="text-xs font-semibold text-text-muted">sin datos</p>
-                      )}
-                    </div>
+                    {alertLabel && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#d97706]/10 text-[#d97706] text-[10px] font-bold animate-pulse">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>{alertLabel}</span>
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -521,34 +542,28 @@ export default function HomePage() {
                 <h2 className="text-[20px] font-semibold text-ink">
                   Alertas
                 </h2>
-                <Link
-                  href="/alertas"
-                  className="text-sm font-semibold text-ink hover:underline"
-                >
-                  Ver todas
-                </Link>
               </div>
               {firstAlert && firstLine ? (
-                <Link
-                  href={`/alerta/${firstAlert.id}`}
-                  aria-label={`Ver informe de ${firstAlert.title}, línea ${firstLine.shortName}`}
-                  className="bg-canvas border border-hairline rounded-2xl p-4 flex items-start gap-3 shadow-sm hover:bg-canvas-soft active:scale-[0.99] transition-all"
+                <div
+                  className="bg-canvas border border-hairline rounded-2xl p-4 flex items-start gap-3 shadow-sm"
                 >
                   <div className="w-10 h-10 rounded-xl bg-canvas-soft flex items-center justify-center flex-shrink-0">
                     <AlertIcon className="w-5 h-5 text-[#d97706]" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-ink mb-1">
-                      {firstAlert.title}
-                    </p>
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <p className="text-sm font-semibold text-ink">
+                        {firstAlert.title}
+                      </p>
+                      <span className="px-2.5 py-0.5 rounded-full bg-canvas-soft border border-hairline text-text-muted text-xs font-medium shrink-0">
+                        Hace 2hs
+                      </span>
+                    </div>
                     <p className="text-sm text-text-muted leading-snug">
                       Línea {firstLine.shortName}: {firstAlert.description}
                     </p>
                   </div>
-                  <span className="h-8 px-3 flex items-center bg-canvas-soft text-ink font-semibold rounded-full text-xs shrink-0 self-center border border-hairline">
-                    Ver
-                  </span>
-                </Link>
+                </div>
               ) : (
                 <div className="bg-canvas border border-hairline rounded-2xl p-4 flex items-center gap-3 shadow-sm">
                   <CheckCircle2 className="w-5 h-5 text-[#16a34a]" />

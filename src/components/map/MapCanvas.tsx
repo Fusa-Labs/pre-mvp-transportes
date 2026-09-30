@@ -360,6 +360,8 @@ function routeArrowSvg(): string {
   </svg>`;
 }
 
+
+
 /**
  * Rasteriza el SVG a ImageData respetando el ASPECT del viewBox: los
  * sprites no cuadrados (isométrico 152×132) ya no se aplastan a 96×96.
@@ -1377,10 +1379,17 @@ export function MapCanvas({
             ]
           : ['==', ['get', 'lineId'], '__ninguna__']
       ) as never;
-      for (const prefix of ['route-casing', 'route-line', 'route-flow-head', 'route-flow-tail', 'route-arrows', 'route-halo-a', 'route-halo-b']) {
+      for (const prefix of [
+        'route-casing', 'route-line', 'route-flow-head', 'route-flow-tail',
+        'route-arrows', 'route-halo-a', 'route-halo-b',
+        'route-stops',
+      ]) {
         if (map.getLayer(prefix)) {
           map.setFilter(prefix, routeFilter);
         }
+      }
+      if (map.getLayer('route-stops-label')) {
+        map.setFilter('route-stops-label', ['all', ['!=', ['get', 'name'], ''], routeFilter] as never);
       }
 
       // Pulso + corriente: máximo UNA línea con foco (spec #861/#872).
@@ -2041,6 +2050,7 @@ export function MapCanvas({
         type: 'circle',
         source: 'route-stops',
         minzoom: 13.2,
+        filter: HIDE_ALL_ROUTES,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 13.2, 2.8, 16, 4.2],
           'circle-color': '#FFFFFF',
@@ -2054,7 +2064,7 @@ export function MapCanvas({
         type: 'symbol',
         source: 'route-stops',
         minzoom: 15.6,
-        filter: ['!=', ['get', 'name'], ''],
+        filter: ['all', ['!=', ['get', 'name'], ''], HIDE_ALL_ROUTES],
         layout: {
           'text-field': ['get', 'name'],
           'text-size': 10.5,
@@ -2333,8 +2343,8 @@ export function MapCanvas({
         source: 'planner-points',
         filter: ['==', ['get', 'kind'], 'origin'],
         paint: {
-          'circle-radius': 7,
-          'circle-color': '#1A73E8',
+          'circle-radius': 6.5,
+          'circle-color': '#16A34A',
           'circle-stroke-color': '#FFFFFF',
           'circle-stroke-width': 2.5,
           'circle-pitch-alignment': 'map',
@@ -2346,8 +2356,8 @@ export function MapCanvas({
         source: 'planner-points',
         filter: ['==', ['get', 'kind'], 'destination'],
         paint: {
-          'circle-radius': 8,
-          'circle-color': '#0D1420',
+          'circle-radius': 6.5,
+          'circle-color': '#EF4444',
           'circle-stroke-color': '#FFFFFF',
           'circle-stroke-width': 2.5,
           'circle-pitch-alignment': 'map',
@@ -2486,9 +2496,9 @@ export function MapCanvas({
           'text-field': ['get', 'name'],
           'text-size': 11,
           'text-font': ['Noto Sans Bold'],
-          'text-offset': [0, -1.6],
+          'text-offset': [0, -1.3],
           'text-anchor': 'bottom',
-          'text-max-width': 12,
+          'text-max-width': 14,
         },
         paint: {
           'text-color': '#0D1420',

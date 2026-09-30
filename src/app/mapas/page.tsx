@@ -18,12 +18,13 @@ import { segmentBearing, type CameraMode } from "@/lib/map/camera-controller";
 import type { MapFocusRequest, PlannerMapPoints, PlannerMapPulse, TripRouteShade } from "@/components/map/MapCanvas";
 import { Parada } from "@/types/transport";
 import { TripOption, LocationPoint, TransitLeg } from "@/types/trip-planner";
-import { Navigation, RotateCcw, Eye, X, Search } from "lucide-react";
+import { Navigation, Eye, X, Search } from "lucide-react";
 import { SIMULATED_USER_LOCATION, SIMULATED_LOCATION_LABEL, requestDeviceLocation, DeviceLocationError } from "@/lib/config/user-location";
 import { parseTripMapState, buildTripMapState, tripMapUrlFromState, etaToBoardingStop, hasPassedStop, hasCompletedRide, viajandoSubPhase, ARRIVAL_EPS_M, ARRIVAL_EPS_S, BOARDING_DWELL_MS, type TripMapNavigationState, type ArrivalPhase } from "@/lib/trip-map-navigation";
 import { buildBoardingOptions, boardingHeroLabel, boardingUnitKeyOf } from "@/lib/services/trip-boarding-options";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { useRouter } from "next/navigation";
 
 const ALL_LINE_IDS = MOCK_LINES.map((l) => l.id);
 
@@ -49,6 +50,7 @@ function buildTripKey(
 }
 
 export default function TransportesAppPage() {
+  const router = useRouter();
   const { resolvedTheme } = useTheme();
   const [isLineMenuOpen, setIsLineMenuOpen] = useState<boolean>(false);
   const lineas = useMemo(() => TransportService.getLineas(), []);
@@ -79,6 +81,8 @@ export default function TransportesAppPage() {
   // Fase step-focus: nonce monotónico en STATE (nunca un ref dentro del memo
   // focusRequest) para re-disparar el fitBounds del paso seleccionado.
   const [stepFocusNonce, setStepFocusNonce] = useState(0);
+  const [customFocus, setCustomFocus] = useState<MapFocusRequest | null>(null);
+  const [customFocusNonce, setCustomFocusNonce] = useState(0);
   const [mapPickTarget, setMapPickTarget] = useState<"origin" | "destination" | null>(null);
   const [isTripHeaderCollapsed, setIsTripHeaderCollapsed] = useState(false);
   // Semilla del contrato portable (Home): se lee UNA vez; después todo deriva
@@ -100,7 +104,7 @@ export default function TransportesAppPage() {
   // El resolver la prefiere; el reset sigue siendo solo via arrivalResetKey.
   const [boardingUnitKey, setBoardingUnitKey] = useState<string | null>(null);
   // sdd/trip-options-upgrade: colapso del ViajePanel para padding dual + reframe.
-  const [isTripPanelCollapsed, setIsTripPanelCollapsed] = useState(false);
+  const [isTripPanelCollapsed, setIsTripPanelCollapsed] = useState(true);
   // Aire inferior dinámico según el sheet (declarado antes del focusRequest).
   const tripBottomPadding = isTripPanelCollapsed ? TRIP_PAD_COLLAPSED : TRIP_PAD_EXPANDED;
 
@@ -509,6 +513,7 @@ export default function TransportesAppPage() {
   // Fase step-focus: seleccionar un paso toma la cámara ('step-focus'); deseleccionar
   // restaura el follow del bondi/parada. El nonce re-dispara el fitBounds del paso.
   const handleSelectStep = useCallback((stepId: string | null) => {
+    setCustomFocus(null);
     if (stepId) {
       setSelectedStepId(stepId);
       setStepFocusNonce((n) => n + 1);
@@ -566,6 +571,14 @@ export default function TransportesAppPage() {
 
   const focusRequest: MapFocusRequest | null = useMemo(() => {
     if (!isTripMode) return null;
+
+    if (customFocus) {
+      return {
+        ...customFocus,
+        nonce: customFocusNonce,
+        bottomPadding: customFocus.bottomPadding ?? tripBottomPadding,
+      };
+    }
 
     if (!selectedTrip) {
       // Sin trip aún: volar al punto más reciente elegido (origen/destino)
@@ -628,11 +641,12 @@ export default function TransportesAppPage() {
       nonce,
       bottomPadding: tripBottomPadding,
     };
-  }, [isTripMode, selectedTrip, activeStepId, originLocation, destinationLocation, tripReframeNonce, tripBottomPadding, stepFocusNonce, trip3D, selectedVehiculo]);
+  }, [isTripMode, customFocus, customFocusNonce, selectedTrip, activeStepId, originLocation, destinationLocation, tripReframeNonce, tripBottomPadding, stepFocusNonce, trip3D, selectedVehiculo]);
 
   /** Selección explícita del usuario → limpia la clave de focus para que
    *  el geocoder pueda re-encuadrar (el seed de apertura no). */
   const handleSelectOrigin = useCallback((loc: LocationPoint) => {
+    setCustomFocus(null);
     lastFocusKeyRef.current = null;
     // Nuevo origen = nuevo viaje: se invalidan las preferencias del anterior.
     setBoardingPin(null);
@@ -642,6 +656,7 @@ export default function TransportesAppPage() {
   }, []);
 
   const handleSelectDestination = useCallback((loc: LocationPoint) => {
+    setCustomFocus(null);
     lastFocusKeyRef.current = null;
     setBoardingPin(null);
     setVehiclePin(null);
@@ -753,11 +768,27 @@ export default function TransportesAppPage() {
   }, []);
 
   const handleCloseTripMode = useCallback(() => {
+    setIsTripMode(false);
     setTripViewVisible(false);
-    // Cerrar el viaje no debe conservar un paso enfocado (REQ-6).
     setSelectedStepId(null);
+    setSelectedTripId(null);
+    setOriginLocation(null);
+    setDestinationLocation(null);
+    setSelectedVehiculo(null);
+    setSelectedLineaId(null);
+    setSelectedRamalId(null);
+    setSelectedParada(null);
+    setTripSeed(null);
+    setBoardingPin(null);
+    setVehiclePin(null);
+    setBoardingUnitKey(null);
+    setCustomFocus(null);
     setCameraMode("overview");
-  }, []);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", "/mapas");
+    }
+    router.replace("/mapas");
+  }, [router]);
 
   // ESC con jerarquía: cancelar "fijar en mapa" → salir de Modo Viaje.
   // Si el ESC se originó en un campo del ViajeHeader, ya hizo stopPropagation allí.
@@ -943,12 +974,122 @@ export default function TransportesAppPage() {
     window.history.replaceState(null, "", tripMapUrlFromState(state));
   }, [resolvedTrip, originLocation, destinationLocation, expectedArrival]);
 
+  // 3D focus callbacks para ViajePanel
+  const handleFocusOriginStop = useCallback(() => {
+    let lng: number | undefined;
+    let lat: number | undefined;
+
+    if (resolvedTrip?.boardingStopId) {
+      const stop = TripPlannerService.getStopById(resolvedTrip.boardingStopId);
+      if (stop) {
+        lng = stop.lng;
+        lat = stop.lat;
+      }
+    }
+
+    if (lng === undefined || lat === undefined) {
+      const ride = selectedTrip?.legs.find((leg): leg is TransitLeg => leg.type === "ride");
+      if (ride?.fromStop) {
+        lng = ride.fromStop.lng;
+        lat = ride.fromStop.lat;
+      } else if (originLocation) {
+        lng = originLocation.lng;
+        lat = originLocation.lat;
+      }
+    }
+
+    if (lng !== undefined && lat !== undefined) {
+      const bounds: [[number, number], [number, number]] = [
+        [lng - 0.002, lat - 0.002],
+        [lng + 0.002, lat + 0.002],
+      ];
+      setCustomFocusNonce((n) => {
+        const next = n + 1;
+        setCustomFocus({
+          bounds,
+          nonce: next,
+          pitch: 58,
+          maxZoom: 16.5,
+        });
+        return next;
+      });
+      if (isTripMode && tripViewVisible) {
+        setCameraMode("step-focus");
+      }
+    }
+  }, [resolvedTrip, selectedTrip, originLocation, isTripMode, tripViewVisible]);
+
+  const handleFocusDestinationStop = useCallback(() => {
+    let lng: number | undefined;
+    let lat: number | undefined;
+
+    if (selectedTrip) {
+      const rideLegs = selectedTrip.legs.filter((leg): leg is TransitLeg => leg.type === "ride");
+      const lastRide = rideLegs[rideLegs.length - 1];
+      if (lastRide?.toStop) {
+        lng = lastRide.toStop.lng;
+        lat = lastRide.toStop.lat;
+      } else if (selectedTrip.destinationStopId) {
+        const stop = TripPlannerService.getStopById(selectedTrip.destinationStopId);
+        if (stop) {
+          lng = stop.lng;
+          lat = stop.lat;
+        }
+      }
+    }
+
+    if (lng === undefined || lat === undefined) {
+      if (destinationLocation) {
+        lng = destinationLocation.lng;
+        lat = destinationLocation.lat;
+      }
+    }
+
+    if (lng !== undefined && lat !== undefined) {
+      const bounds: [[number, number], [number, number]] = [
+        [lng - 0.002, lat - 0.002],
+        [lng + 0.002, lat + 0.002],
+      ];
+      setCustomFocusNonce((n) => {
+        const next = n + 1;
+        setCustomFocus({
+          bounds,
+          nonce: next,
+          pitch: 58,
+          maxZoom: 16.5,
+        });
+        return next;
+      });
+      if (isTripMode && tripViewVisible) {
+        setCameraMode("step-focus");
+      }
+    }
+  }, [selectedTrip, destinationLocation, isTripMode, tripViewVisible]);
+
+  const handleFocusTripOverview = useCallback(() => {
+    if (!selectedTrip?.bounds) return;
+    setCustomFocusNonce((n) => {
+      const next = n + 1;
+      setCustomFocus({
+        bounds: selectedTrip.bounds,
+        nonce: next,
+        pitch: 20,
+        bearing: 0,
+      });
+      return next;
+    });
+    if (isTripMode && tripViewVisible) {
+      setCameraMode("step-focus");
+    }
+  }, [selectedTrip, isTripMode, tripViewVisible]);
+
   // Salir de la vista de viaje (rosa/X): oculta el chrome y libera la cámara,
   // pero conserva viaje, vehículo, parada y línea intactos.
   const handleExitTripView = useCallback(() => {
     setTripViewVisible(false);
     // Salir de la vista libera el foco de paso (REQ-6).
     setSelectedStepId(null);
+    setCustomFocus(null);
     setCameraMode("overview");
   }, []);
 
@@ -960,6 +1101,7 @@ export default function TransportesAppPage() {
     setTrip3D(true);
     // Re-entrar no debe restaurar un paso enfocado stale (REQ-6).
     setSelectedStepId(null);
+    setCustomFocus(null);
     setTripReframeNonce((n) => n + 1);
     if (selectedVehiculo) {
       setCameraMode(followTripStop ? "follow-trip" : "follow-vehicle");
@@ -1288,17 +1430,18 @@ export default function TransportesAppPage() {
             )}
           </div>
 
-          {/* Selector Vertical Jerárquico de Líneas: visible en mapa normal y
-              también en Modo Viaje (el rail baja para no chocar con el header). */}
-          <LineSelectorBar
-            lineas={lineas}
-            selectedLineaId={selectedLineaId}
-            selectedRamalId={selectedRamalId}
-            onSelectLinea={handleSelectLinea}
-            onSelectRamal={handleSelectRamal}
-            hasTopPill={hasActivePill}
-            tripMode={isTripMode}
-          />
+          {/* Selector Vertical Jerárquico de Líneas: visible únicamente fuera de Modo Viaje */}
+          {!isTripMode && (
+            <LineSelectorBar
+              lineas={lineas}
+              selectedLineaId={selectedLineaId}
+              selectedRamalId={selectedRamalId}
+              onSelectLinea={handleSelectLinea}
+              onSelectRamal={handleSelectRamal}
+              hasTopPill={hasActivePill}
+              tripMode={false}
+            />
+          )}
 
           {/* Canvas de Mapa MapLibre WebGL — capa fija, sin reflow del header */}
           <div className="absolute inset-0 z-0 overflow-hidden">
@@ -1352,16 +1495,6 @@ export default function TransportesAppPage() {
           >
             <ThemeToggle />
 
-
-            <button
-              onClick={handleResetCamera}
-              title="Centrar en Metropol"
-              aria-label="Centrar vista en Metropol"
-              className="w-10 h-10 rounded-full bg-canvas/95 border border-hairline flex items-center justify-center text-foreground hover:bg-canvas-soft active:scale-95 transition-all"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-
             {selectedVehiculo && (
               <button
                 onClick={handleToggle3D}
@@ -1400,7 +1533,7 @@ export default function TransportesAppPage() {
             <ViajePanel
               options={tripOptions}
               selectedOptionId={selectedTrip?.id || null}
-              onSelectOption={(id) => { setSelectedTripId(id); setSelectedStepId(null); setBoardingPin(null); setVehiclePin(null); setBoardingUnitKey(null); setTripReframeNonce((n) => n + 1); if (tripViewVisible) setCameraMode("follow-trip"); }}
+              onSelectOption={(id) => { setCustomFocus(null); setSelectedTripId(id); setSelectedStepId(null); setBoardingPin(null); setVehiclePin(null); setBoardingUnitKey(null); setTripReframeNonce((n) => n + 1); if (tripViewVisible) setCameraMode("follow-trip"); }}
               onClose={handleExitTripView}
               hasPointsSelected={Boolean(originLocation && destinationLocation)}
               originLocation={originLocation}
@@ -1414,6 +1547,9 @@ export default function TransportesAppPage() {
               liveFooterLabel={expectedArrival?.displayLabel ?? boardingHeroLive}
               onCollapsedChange={handlePanelCollapsedChange}
               onRepickDestination={handleRepickDestination}
+              onFocusOriginStop={handleFocusOriginStop}
+              onFocusDestinationStop={handleFocusDestinationStop}
+              onFocusTripOverview={handleFocusTripOverview}
             />
           ) : (
             <LiveTransportBubble

@@ -5,8 +5,8 @@
 
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { ArrowUp, MapPin, Search, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Info, Search, X } from 'lucide-react';
 import { TripPlannerService } from '@/lib/services/trip-planner-service';
 import type { LocationPoint } from '@/types/trip-planner';
 import { cn } from '@/lib/utils';
@@ -19,148 +19,95 @@ interface AssistantBarProps {
 
 const SUGGESTIONS_ID = 'home-destination-suggestions';
 
-export function AssistantBar({ onSubmit, className }: AssistantBarProps) {
-  const [text, setText] = useState('');
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
-  const [message, setMessage] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+export function AssistantBar({ onSubmit: _onSubmit, className }: AssistantBarProps) {
+  const [showNotice, setShowNotice] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const suggestions = useMemo(
-    () => (text.trim() ? TripPlannerService.searchLocations(text).slice(0, 6) : []),
-    [text],
-  );
-  const suggestionsOpen = suggestions.length > 0;
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
-  const selectDestination = (destination: LocationPoint) => {
-    onSubmit(destination);
-    setText('');
-    setActiveSuggestionIndex(-1);
-    setMessage('');
-  };
-
-  const submit = () => {
-    const activeDestination = activeSuggestionIndex >= 0 ? suggestions[activeSuggestionIndex] : null;
-    if (!activeDestination) {
-      setMessage('Elegí uno de los destinos sugeridos para continuar.');
-      return;
-    }
-    selectDestination(activeDestination);
-  };
-
-  const clear = () => {
-    setText('');
-    setActiveSuggestionIndex(-1);
-    setMessage('');
-    inputRef.current?.focus();
+  const triggerNotice = () => {
+    setShowNotice(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      setShowNotice(false);
+    }, 4500);
   };
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="relative">
         <div
+          role="button"
+          tabIndex={0}
+          onClick={triggerNotice}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              triggerNotice();
+            }
+          }}
           className={cn(
-            'group flex items-center gap-2 rounded-full bg-field border border-transparent px-3.5 transition-shadow',
-            'focus-within:ring-2 focus-within:ring-ink/20',
+            'group flex items-center gap-2 rounded-full bg-field border border-transparent pl-4 pr-1.5 transition-all cursor-pointer select-none',
+            'hover:bg-canvas-soft active:scale-[0.99] focus-within:ring-2 focus-within:ring-ink/20',
           )}
+          title="Tocar para buscar parada"
         >
-          <Search className="w-4 h-4 shrink-0 text-text-muted transition-colors group-focus-within:text-ink" />
           <input
-            ref={inputRef}
             type="text"
-            inputMode="search"
-            autoComplete="off"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls={SUGGESTIONS_ID}
-            aria-expanded={suggestionsOpen}
-            aria-activedescendant={activeSuggestionIndex >= 0 ? `${SUGGESTIONS_ID}-${activeSuggestionIndex}` : undefined}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setActiveSuggestionIndex(-1);
-              setMessage('');
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowDown' && suggestionsOpen) {
-                e.preventDefault();
-                setActiveSuggestionIndex((index) => Math.min(index + 1, suggestions.length - 1));
-              }
-              if (e.key === 'ArrowUp' && suggestionsOpen) {
-                e.preventDefault();
-                setActiveSuggestionIndex((index) => Math.max(index - 1, 0));
-              }
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                if (activeSuggestionIndex >= 0) {
-                  selectDestination(suggestions[activeSuggestionIndex]);
-                  return;
-                }
-                submit();
-              }
-              if (e.key === 'Escape') clear();
-            }}
-            placeholder="¿A dónde querés ir?"
-            aria-label="¿A dónde querés ir?"
-            className="flex-1 min-w-0 bg-transparent min-h-[46px] text-sm text-ink placeholder:text-text-faint focus:outline-none"
+            readOnly
+            tabIndex={-1}
+            value=""
+            placeholder="Buscá tu parada"
+            aria-label="Buscá tu parada"
+            className="flex-1 min-w-0 bg-transparent min-h-[46px] text-sm text-ink placeholder:text-text-faint focus:outline-none cursor-pointer"
           />
-          {text.trim() && (
-            <button
-              type="button"
-              onClick={clear}
-              aria-label="Borrar destino"
-              className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-text-muted hover:text-ink hover:bg-canvas-soft transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
           <button
             type="button"
-            onClick={submit}
-            aria-label="Iniciar viaje"
-            className={cn(
-              'w-8 h-8 shrink-0 rounded-full bg-ink text-canvas flex items-center justify-center active:scale-95 transition-all',
-              activeSuggestionIndex < 0 && 'opacity-35',
-            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerNotice();
+            }}
+            aria-label="Buscar parada"
+            className="w-8 h-8 shrink-0 rounded-full bg-ink text-canvas flex items-center justify-center active:scale-95 transition-all"
           >
-            <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
+            <Search className="w-4 h-4" strokeWidth={2.5} />
           </button>
         </div>
 
-        {suggestionsOpen && (
-          <ul
-            id={SUGGESTIONS_ID}
-            role="listbox"
-            aria-label="Destinos sugeridos"
-            className="absolute z-30 left-0 right-0 top-[calc(100%+0.5rem)] rounded-2xl border border-hairline bg-canvas p-1.5 shadow-lg"
+        {/* Aviso flotante de alcance de maqueta */}
+        {showNotice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="absolute z-30 left-0 right-0 top-[calc(100%+0.5rem)] rounded-2xl border border-hairline bg-canvas/95 backdrop-blur-md p-3.5 shadow-xl flex items-start gap-2.5 animate-in fade-in slide-in-from-top-2 duration-200"
           >
-            {suggestions.map((place, index) => (
-              <li key={`${place.id ?? place.name}-${index}`} role="presentation">
-                <button
-                  id={`${SUGGESTIONS_ID}-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={activeSuggestionIndex === index}
-                  onMouseEnter={() => setActiveSuggestionIndex(index)}
-                  onClick={() => selectDestination(place)}
-                  className={cn(
-                    'w-full rounded-xl px-3 py-2.5 text-left flex items-center gap-2.5 transition-colors',
-                    activeSuggestionIndex === index ? 'bg-canvas-soft' : 'hover:bg-canvas-soft',
-                  )}
-                >
-                  <MapPin className="w-4 h-4 shrink-0 text-electric-blue" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-ink">{place.name}</span>
-                    {place.address && <span className="block truncate text-[11px] text-text-muted">{place.address}</span>}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+            <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-ink leading-snug">
+                Búsqueda completa de direcciones disponible en el lanzamiento final
+              </p>
+              <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                Para probar esta maqueta interactiva, seleccioná uno de los recorridos simulados en el <span className="font-semibold text-ink">Historial de paradas</span> debajo.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowNotice(false);
+              }}
+              aria-label="Cerrar aviso"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-text-muted hover:text-ink hover:bg-canvas-soft transition-colors shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
-      <p aria-live="polite" className={cn('text-xs text-text-muted', !message && 'sr-only')}>
-        {message}
-      </p>
     </div>
   );
 }

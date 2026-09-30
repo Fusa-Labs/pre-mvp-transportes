@@ -255,24 +255,6 @@ html, body {
   }
 }
 
-/* Aura dock de la rosa Metropol — ver docs/metropol/METROPOL-ROSA-DESIGN.md */
-@keyframes rutaba-rose-glow {
-  0%, 100% {
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.32), 0 0 16px rgba(139, 92, 246, 0.22);
-  }
-  50% {
-    box-shadow: 0 8px 28px rgba(139, 92, 246, 0.55), 0 0 32px rgba(139, 92, 246, 0.45);
-  }
-}
-
-.rutaba-rose-btn {
-  animation: rutaba-rose-glow 3.2s ease-in-out infinite;
-}
-
-.rutaba-rose-btn[data-active='true'] {
-  animation: none;
-  box-shadow: 0 8px 30px rgba(139, 92, 246, 0.6), 0 0 36px rgba(139, 92, 246, 0.5);
-}
 
 /* Shine / drive para CTAs de horarios */
 @keyframes rutaba-shine {
@@ -297,8 +279,6 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rutaba-rose-aura,
-  .rutaba-rose-btn,
   .rutaba-shine,
   .rutaba-drive,
   .animate-arrival-blink,
@@ -306,10 +286,6 @@ html, body {
   .animate-ride-pulse,
   .transfer-orb {
     animation: none !important;
-  }
-
-  .rutaba-rose-btn {
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.32), 0 0 16px rgba(139, 92, 246, 0.22);
   }
 }
 
@@ -440,11 +416,8 @@ html, body {
 @keyframes fluid-core-rise { 0% { opacity: 0; transform: translate(-50%, 9px) scale(.55); } 12% { opacity: 1; } 72% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -101px) scale(1.1); } }
 @keyframes fluid-tail-rise { 0% { opacity: 0; transform: translate(-50%, 12px) scaleY(.25); } 16% { opacity: .92; } 100% { opacity: 0; transform: translate(-50%, -84px) scaleY(1.2); } }
 
-.rutaba-rose-trip-morph { box-shadow: 0 10px 28px rgba(16, 29, 61, .28), 0 0 0 0 rgba(0, 102, 255, .18); animation: rose-trip-arrival 720ms cubic-bezier(.16, 1.25, .3, 1) both; }
-@keyframes rose-trip-arrival { 0% { transform: translateX(-50%) translateY(5px) scale(.88); } 58% { transform: translateX(-50%) translateY(-3px) scale(1.06); } 100% { transform: translateX(-50%) translateY(0) scale(1); } }
-
 @media (prefers-reduced-motion: reduce) {
-  .arrival-card, .arrival-card--arribando, .arrival-card--viajando-green, .arrival-rolling-duration__value, .arrival-fluid-trail__core, .arrival-fluid-trail__tail, .rutaba-rose-trip-morph { animation: none !important; transition-duration: 0ms !important; }
+  .arrival-card, .arrival-card--arribando, .arrival-card--viajando-green, .arrival-rolling-duration__value, .arrival-fluid-trail__core, .arrival-fluid-trail__tail { animation: none !important; transition-duration: 0ms !important; }
   .arrival-fluid-trail { display: none; }
 }
 

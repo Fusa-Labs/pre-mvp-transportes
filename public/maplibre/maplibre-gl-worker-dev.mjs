@@ -1030,4 +1030,3 @@ if (isWorker(self)) self.worker = new Worker(self);
 //#endregion
 export { Worker as default };
 
-//# sourceMappingURL=maplibre-gl-worker-dev.mjs.map

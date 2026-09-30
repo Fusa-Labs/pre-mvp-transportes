@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -13,6 +12,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   title: "La Nueva Metropol • Colectivos en Vivo",
   description:
     "La Nueva Metropol: monitoreo de colectivos del AMBA en tiempo real, paradas y alertas de servicio.",
@@ -86,9 +86,11 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning className={`h-full antialiased dark ${inter.variable}`}>
       <head>
-        <Script id="theme-init" strategy="beforeInteractive">
-          {themeInitScript}
-        </Script>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: themeInitScript,
+          }}
+        />
       </head>
       <body className="h-full w-full overflow-hidden bg-background text-foreground overscroll-none select-none transition-colors duration-200">
         <ThemeProvider>
